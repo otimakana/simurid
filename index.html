@@ -359,6 +359,12 @@ const state = {
   recapFilters:{from:firstDayOfMonth(),to:todayISO(),classId:"",studentId:"",programId:""},
   violationFilters:{from:firstDayOfMonth(),to:todayISO(),classId:"",studentId:"",typeId:"",status:""},
   selectedRaporStudent:"",
+  raporClassId:"",
+  raporPrintMode:"all",
+  raporPrintStudent:"",
+  raporPeriodType:"month",
+  raporAcademicYear:"",
+  raporPeriodKey:"",
   raporFrom:firstDayOfMonth(),
   raporTo:todayISO(),
   importRows:[],
@@ -1606,19 +1612,120 @@ function studentReport(studentId,from,to){
   });
   return {student:s,byDim,records,ops};
 }
+function raporStudentsForClass(classId=""){
+  return state.students.filter(s=>!classId || s.class_id===classId);
+}
+function raporPrintStudentOptions(value="",classId=""){
+  return selectOptions(raporStudentsForClass(classId),value,"Pilih Nama Siswa");
+}
+function raporPrintTargets(){
+  const classId=state.raporClassId||"";
+  if(!classId)return [];
+  const list=raporStudentsForClass(classId);
+  if(!list.length)return [];
+  if(state.raporPrintMode==="student"){
+    const found=list.find(s=>s.id===state.raporPrintStudent);
+    return found?[found]:[];
+  }
+  return list;
+}
+
+function getAcademicYearForDate(dateStr=todayISO()){
+  const d=new Date(dateStr+"T00:00:00");
+  const y=d.getFullYear(), m=d.getMonth()+1;
+  return m>=7 ? `${y}/${y+1}` : `${y-1}/${y}`;
+}
+function academicYearParts(ay){
+  const m=String(ay||"").match(/^(\d{4})\/(\d{4})$/);
+  if(!m)return null;
+  return {startYear:Number(m[1]),endYear:Number(m[2])};
+}
+function academicYearOptions(selected=""){
+  const current=getAcademicYearForDate();
+  const parts=academicYearParts(current);
+  const years=[];
+  if(parts){
+    for(let i=-2;i<=2;i++) years.push(`${parts.startYear+i}/${parts.endYear+i}`);
+  }
+  return years.map(y=>`<option value="${y}" ${y===selected?"selected":""}>${y}</option>`).join("");
+}
+function monthPeriodOptions(ay,selected=""){
+  const p=academicYearParts(ay); if(!p)return `<option value="">Pilih tahun ajaran terlebih dahulu</option>`;
+  const arr=[];
+  for(let i=0;i<12;i++){
+    const d=new Date(p.startYear,6+i,1);
+    const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label=d.toLocaleDateString("id-ID",{month:"long",year:"numeric"});
+    arr.push(`<option value="${key}" ${key===selected?"selected":""}>${label}</option>`);
+  }
+  return arr.join("");
+}
+function setRaporPeriod(type,academicYear,key){
+  state.raporPeriodType=type;
+  state.raporAcademicYear=academicYear||getAcademicYearForDate();
+  state.raporPeriodKey=key||"";
+  const p=academicYearParts(state.raporAcademicYear);
+  if(!p)return;
+  if(type==="semester_ganjil"){
+    state.raporFrom=`${p.startYear}-07-01`;
+    state.raporTo=`${p.startYear}-12-31`;
+  }else if(type==="semester_genap"){
+    state.raporFrom=`${p.endYear}-01-01`;
+    state.raporTo=`${p.endYear}-06-30`;
+  }else if(type==="month" && /^\d{4}-\d{2}$/.test(state.raporPeriodKey)){
+    const [y,m]=state.raporPeriodKey.split("-").map(Number);
+    state.raporFrom=`${y}-${String(m).padStart(2,"0")}-01`;
+    state.raporTo=localISO(new Date(y,m,0));
+  }
+}
+function ensureRaporPeriod(){
+  if(!state.raporAcademicYear)state.raporAcademicYear=getAcademicYearForDate(state.raporFrom||todayISO());
+  if(!state.raporPeriodKey){
+    if(state.raporPeriodType==="month") state.raporPeriodKey=(state.raporFrom||todayISO()).slice(0,7);
+    else state.raporPeriodKey=state.raporPeriodType;
+  }
+  setRaporPeriod(state.raporPeriodType,state.raporAcademicYear,state.raporPeriodKey);
+}
+function raporPeriodLabel(){
+  ensureRaporPeriod();
+  const ay=state.raporAcademicYear;
+  if(state.raporPeriodType==="semester_ganjil")return `Semester Ganjil ${ay} (Juli–Desember ${academicYearParts(ay).startYear})`;
+  if(state.raporPeriodType==="semester_genap")return `Semester Genap ${ay} (Januari–Juni ${academicYearParts(ay).endYear})`;
+  if(/^\d{4}-\d{2}$/.test(state.raporPeriodKey)){
+    const [y,m]=state.raporPeriodKey.split("-").map(Number);
+    return `${new Date(y,m-1,1).toLocaleDateString("id-ID",{month:"long"})} ${y} · ${ay}`;
+  }
+  return ay;
+}
+
 views.rapor=()=>{
-  const selected=state.selectedRaporStudent||state.students[0]?.id||"";
+  ensureRaporPeriod();
+  const classStudents=raporStudentsForClass(state.raporClassId);
+  const selected=state.selectedRaporStudent && classStudents.some(s=>s.id===state.selectedRaporStudent)
+    ? state.selectedRaporStudent
+    : classStudents[0]?.id||state.students[0]?.id||"";
   const r=studentReport(selected,state.raporFrom,state.raporTo);
   const className=r?state.classes.find(c=>c.id===r.student.class_id)?.name||"-":"-";
   return layout("Rapor Karakter","Laporan perkembangan karakter berdasarkan evidence pembiasaan dan Dimensi Profil Lulusan.",
   `<div class="card" style="margin-bottom:14px"><div class="filters">
-    <div class="field"><label>Dari</label><input class="input" type="date" value="${state.raporFrom}" onchange="state.raporFrom=this.value;render()"></div>
-    <div class="field"><label>Sampai</label><input class="input" type="date" value="${state.raporTo}" onchange="state.raporTo=this.value;render()"></div>
-    <div class="field"><label>Siswa</label><select class="select" onchange="state.selectedRaporStudent=this.value;render()">${studentOptions(selected)}</select></div>
-    <div style="margin-left:auto;display:flex;align-items:end"><button class="btn btn-primary" onclick="printReport('character')">🖨 Cetak Rapor</button></div>
-  </div></div>
-  ${!r?`<div class="card empty">Belum ada siswa.</div>`:`<div class="card rapor-preview-card">
-    <div class="rapor-preview-head"><div><span class="eyebrow">LAPORAN PERKEMBANGAN KARAKTER</span><h2>${esc(r.student.full_name)}</h2><p>${esc(className)} · ${fmtDate(state.raporFrom)} – ${fmtDate(state.raporTo)}</p></div><div class="score-puck"><strong>${Object.values(r.byDim).filter(x=>x.score!=null).length? (Object.values(r.byDim).filter(x=>x.score!=null).reduce((a,x)=>a+x.score,0)/Object.values(r.byDim).filter(x=>x.score!=null).length).toFixed(1):"—"}</strong><span>rata-rata</span></div></div>
+    <div class="field"><label>Periode</label><select class="select" onchange="setRaporPeriod(this.value,state.raporAcademicYear,state.raporPeriodKey);render()">
+      <option value="month" ${state.raporPeriodType==="month"?"selected":""}>Per Bulan</option>
+      <option value="semester_ganjil" ${state.raporPeriodType==="semester_ganjil"?"selected":""}>Semester Ganjil · Juli–Desember</option>
+      <option value="semester_genap" ${state.raporPeriodType==="semester_genap"?"selected":""}>Semester Genap · Januari–Juni</option>
+    </select></div>
+    <div class="field"><label>Tahun Ajaran</label><select class="select" onchange="state.raporAcademicYear=this.value;state.raporPeriodKey=state.raporPeriodType==='month'?'':state.raporPeriodType;ensureRaporPeriod();render()">${academicYearOptions(state.raporAcademicYear)}</select></div>
+    ${state.raporPeriodType==="month"?`<div class="field"><label>Bulan</label><select class="select" onchange="setRaporPeriod('month',state.raporAcademicYear,this.value);render()">${monthPeriodOptions(state.raporAcademicYear,state.raporPeriodKey)}</select></div>`:`<div class="field"><label>Periode Semester</label><div class="input" style="background:#f7f9fc;display:flex;align-items:center;min-height:38px;font-weight:700">${state.raporPeriodType==="semester_ganjil"?"Juli–Desember":"Januari–Juni"}</div></div>`}
+    <div class="field"><label>Kelas</label><select class="select" onchange="state.raporClassId=this.value;state.raporPrintStudent='';state.selectedRaporStudent='';render()">${selectOptions(state.classes,state.raporClassId,"Pilih Kelas")}</select></div>
+    <div class="field"><label>Cetak Rapor</label><select class="select" onchange="state.raporPrintMode=this.value;state.raporPrintStudent='';render()">
+      <option value="all" ${state.raporPrintMode==="all"?"selected":""}>Semua Murid</option>
+      <option value="student" ${state.raporPrintMode==="student"?"selected":""}>Berdasarkan Nama</option>
+    </select></div>
+    ${state.raporPrintMode==="student"?`<div class="field"><label>Nama Siswa</label><select class="select" ${!state.raporClassId?"disabled":""} onchange="state.raporPrintStudent=this.value;state.selectedRaporStudent=this.value;render()">${state.raporClassId?raporPrintStudentOptions(state.raporPrintStudent,state.raporClassId):`<option value="">Pilih kelas terlebih dahulu</option>`}</select></div>`:""}
+    <div style="margin-left:auto;display:flex;align-items:end;gap:8px"><button class="btn btn-primary" onclick="printReport('character')">🖨 Cetak ${state.raporPrintMode==="student"?"Siswa":"Semua"}</button></div>
+  </div>
+  <div style="margin-top:9px;color:#70778a;font-size:9px">Periode cetak: <b>${esc(raporPeriodLabel())}</b>. Pilih <b>Kelas</b> terlebih dahulu. Untuk cetak satu siswa, pilih <b>Berdasarkan Nama</b> lalu pilih nama siswa.</div></div>
+  ${!r?`<div class="card empty">Belum ada siswa pada kelas yang dipilih.</div>`:`<div class="card rapor-preview-card">
+    <div class="rapor-preview-head"><div><span class="eyebrow">LAPORAN PERKEMBANGAN KARAKTER</span><h2>${esc(r.student.full_name)}</h2><p>${esc(className)} · ${esc(raporPeriodLabel())}</p></div><div class="score-puck"><strong>${Object.values(r.byDim).filter(x=>x.score!=null).length? (Object.values(r.byDim).filter(x=>x.score!=null).reduce((a,x)=>a+x.score,0)/Object.values(r.byDim).filter(x=>x.score!=null).length).toFixed(1):"—"}</strong><span>rata-rata</span></div></div>
     <div class="rapor-summary"><strong>Ringkasan Perkembangan</strong><p>${esc(characterStrength(r))}</p></div>
     <div class="section-title"><span>01</span> Perkembangan 8 Dimensi Profil Lulusan</div>
     <div class="dimension-report">${Object.values(r.byDim).map(x=>`<article class="dimension-card"><div class="dimension-top"><div><small>${esc(x.dim.code||"")}</small><h3>${esc(x.dim.name)}</h3></div><div class="level-pill">${esc(x.level)}</div></div><p>${esc(x.description||"Belum cukup data")}</p>${x.score!=null?`<div class="dimension-bottom"><span>Nilai perkembangan</span><strong>${x.score.toFixed(1)} / 4</strong></div>`:""}</article>`).join("")}</div>
@@ -1674,25 +1781,33 @@ function printReport(type){
     title="Rekap Pelanggaran";
     content=`<h2>REKAP PELANGGARAN</h2><p>Periode ${fmtDate(state.violationFilters.from)} s.d. ${fmtDate(state.violationFilters.to)}</p><table>${violationRows().map(v=>`<tr><td>${fmtDate(v.violation_date)}</td><td>${esc(v.students?.full_name)}</td><td>${esc(v.students?.classes?.name)}</td><td>${esc(v.violation_types?.name)}</td><td>${v.points}</td><td>${esc(state.followUps.filter(f=>f.violation_id===v.id).map(f=>f.action_description||f.action_type).join("; "))}</td><td>${esc(v.recorded_by||"")}</td><td>${esc(v.status||"")}</td></tr>`).join("")}</table>`;
   } else {
-    const r=studentReport(state.selectedRaporStudent||state.students[0]?.id,state.raporFrom,state.raporTo);
     title="Rapor Karakter";
-    const className=state.classes.find(c=>c.id===r?.student?.class_id)?.name||"-";
-    const programs=state.programs.filter(p=>r?.records.some(x=>x.program.id===p.id));
-    content=`<div class="report-kop">${school.logo_url?`<img src="${esc(school.logo_url)}" class="report-logo">`:""}<div><h1>${esc((school.school_name||"").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div></div>
-    <h2 class="report-title">LAPORAN PERKEMBANGAN KARAKTER PESERTA DIDIK</h2>
-    <div class="student-info"><div><b>Nama</b><span>${esc(r?.student?.full_name||"-")}</span></div><div><b>Kelas</b><span>${esc(className)}</span></div><div><b>Periode</b><span>${fmtDate(state.raporFrom)} s.d. ${fmtDate(state.raporTo)}</span></div></div>
-    <div class="report-summary"><b>Ringkasan Perkembangan</b><p>${esc(r?characterStrength(r):"Belum cukup data")}</p></div>
-    <h3 class="report-section">1. Perkembangan Dimensi Profil Lulusan</h3>
-    <table class="report-table"><tr><th>Dimensi Profil Lulusan</th><th>Capaian</th><th>Deskripsi Perkembangan</th></tr>${r?Object.values(r.byDim).map(x=>`<tr><td><b>${esc(x.dim.name)}</b></td><td class="center">${x.score!=null?`${x.score.toFixed(1)}<br><small>${esc(x.level)}</small>`:"—<br><small>Belum cukup data</small>"}</td><td>${esc(x.description||"Belum cukup data untuk menggambarkan perkembangan pada dimensi ini.")}</td></tr>`).join(""):""}</table>
-    <h3 class="report-section">2. Bukti Kehadiran pada Kegiatan Pembiasaan</h3>
-    <table class="report-table compact"><tr><th>Pembiasaan</th><th>Dimensi Profil Lulusan</th><th>H</th><th>T</th><th>S</th><th>I</th><th>A</th></tr>${programs.map(p=>{const c={H:0,T:0,S:0,I:0,A:0};(r.records||[]).filter(x=>x.program.id===p.id).forEach(x=>c[x.status==="HADIR"?"H":x.status==="TERLAMBAT"?"T":x.status==="SAKIT"?"S":x.status==="IZIN"?"I":"A"]++);const dims=state.programDpl.filter(x=>x.habit_program_id===p.id).map(x=>state.dimensions.find(d=>d.id===x.dpl_id)?.name).filter(Boolean).join(" + ");return `<tr><td>${esc(p.name)}</td><td>${esc(dims||"-")}</td><td>${c.H}</td><td>${c.T}</td><td>${c.S}</td><td>${c.I}</td><td>${c.A}</td></tr>`}).join("")}</table>
-    <div class="report-note"><b>Catatan Penguatan</b><p>${esc(r?characterFollowUp(r):"Data belum cukup untuk menyusun catatan penguatan.")}</p></div>
-    <div class="sign"><div>Mengetahui,<br>Kepala Sekolah<br><br><br><b>${esc(school.principal_name||"")}</b>${school.principal_nip?`<br>NIP. ${esc(school.principal_nip)}`:""}</div><div>Mengetahui,<br>Kesiswaan<br><br><br><b>${esc(school.kesiswaan_name||"")}</b>${school.kesiswaan_nip?`<br>NIP/NIK. ${esc(school.kesiswaan_nip)}`:""}</div></div>`;
+    const targets=raporPrintTargets();
+    if(!targets.length){ toast(state.raporPrintMode==="student"?"Pilih nama siswa terlebih dahulu.":"Pilih kelas terlebih dahulu."); return; }
+    const reportPages=targets.map((student,idx)=>{
+      const r=studentReport(student.id,state.raporFrom,state.raporTo);
+      if(!r)return "";
+      const className=state.classes.find(c=>c.id===r.student.class_id)?.name||"-";
+      const programs=state.programs.filter(p=>r.records.some(x=>x.program.id===p.id));
+      return `<section class="character-page ${idx<targets.length-1?"page-break":""}">
+        <div class="report-kop">${school.logo_url?`<img src="${esc(school.logo_url)}" class="report-logo">`:""}<div><h1>${esc((school.school_name||"").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div></div>
+        <h2 class="report-title">LAPORAN PERKEMBANGAN KARAKTER PESERTA DIDIK</h2>
+        <div class="student-info"><div><b>Nama</b><span>${esc(r.student.full_name||"-")}</span></div><div><b>Kelas</b><span>${esc(className)}</span></div><div><b>Periode</b><span>${esc(raporPeriodLabel())}</span></div></div>
+        <div class="report-summary"><b>Ringkasan Perkembangan</b><p>${esc(characterStrength(r))}</p></div>
+        <h3 class="report-section">1. Perkembangan Dimensi Profil Lulusan</h3>
+        <table class="report-table"><tr><th>Dimensi Profil Lulusan</th><th>Capaian</th><th>Deskripsi Perkembangan</th></tr>${Object.values(r.byDim).map(x=>`<tr><td><b>${esc(x.dim.name)}</b></td><td class="center">${x.score!=null?`${x.score.toFixed(1)}<br><small>${esc(x.level)}</small>`:"—<br><small>Belum cukup data</small>"}</td><td>${esc(x.description||"Belum cukup data untuk menggambarkan perkembangan pada dimensi ini.")}</td></tr>`).join("")}</table>
+        <h3 class="report-section">2. Bukti Kehadiran pada Kegiatan Pembiasaan</h3>
+        <table class="report-table compact"><tr><th>Pembiasaan</th><th>Dimensi Profil Lulusan</th><th>H</th><th>T</th><th>S</th><th>I</th><th>A</th></tr>${programs.map(p=>{const c={H:0,T:0,S:0,I:0,A:0};(r.records||[]).filter(x=>x.program.id===p.id).forEach(x=>c[x.status==="HADIR"?"H":x.status==="TERLAMBAT"?"T":x.status==="SAKIT"?"S":x.status==="IZIN"?"I":"A"]++);const dims=state.programDpl.filter(x=>x.habit_program_id===p.id).map(x=>state.dimensions.find(d=>d.id===x.dpl_id)?.name).filter(Boolean).join(" + ");return `<tr><td>${esc(p.name)}</td><td>${esc(dims||"-")}</td><td>${c.H}</td><td>${c.T}</td><td>${c.S}</td><td>${c.I}</td><td>${c.A}</td></tr>`}).join("")}</table>
+        <div class="report-note"><b>Catatan Penguatan</b><p>${esc(characterFollowUp(r))}</p></div>
+        <div class="sign"><div>Mengetahui,<br>Kepala Sekolah<br><br><br><b>${esc(school.principal_name||"")}</b>${school.principal_nip?`<br>NIP. ${esc(school.principal_nip)}`:""}</div><div>Mengetahui,<br>Kesiswaan<br><br><br><b>${esc(school.kesiswaan_name||"")}</b>${school.kesiswaan_nip?`<br>NIP/NIK. ${esc(school.kesiswaan_nip)}`:""}</div></div>
+      </section>`;
+    }).join("");
+    content=reportPages;
   }
   const win=window.open("","_blank");
   if(!win){toast("Popup diblokir browser.");return;}
   const commonKop = type === "character" ? "" : `<div class="kop"><h1>${esc((school.school_name||"SMKS GRAFIKA").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div>`;
-  win.document.write(`<html><head><title>${title}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px;color:#111}h2{text-align:center;font-size:16px;margin:4px}.kop{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.kop h1{font-size:15px;margin:0}.kop p{margin:2px;font-size:9px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #222;padding:5px;font-size:8px}th{background:#eee}.report-kop{display:flex;gap:14px;align-items:center;border-bottom:3px solid #1e4fbf;padding-bottom:10px}.report-logo{width:58px;height:58px;object-fit:contain}.report-kop h1{font-size:18px;margin:0}.report-kop p{margin:2px 0;font-size:10px}.report-title{text-align:center;font-size:15px;margin:14px 0 10px}.student-info{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #d5d9e2}.student-info div{padding:6px 8px;border-right:1px solid #d5d9e2}.student-info div:last-child{border-right:0}.student-info b{display:block;font-size:9px;color:#667085}.student-info span{font-size:10px}.report-summary,.report-note{background:#f5f8ff;border-left:4px solid #2b63c6;padding:8px 10px;margin:10px 0}.report-summary p,.report-note p{margin:4px 0;font-size:10px;line-height:1.45}.report-section{font-size:12px;margin:12px 0 5px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #cfd5df;padding:5px 6px;font-size:9px;vertical-align:top}.report-table th{background:#eef4ff}.report-table .center{text-align:center}.report-table.compact th,.report-table.compact td{font-size:9px;text-align:center}.report-table.compact th:nth-child(1),.report-table.compact td:nth-child(1),.report-table.compact th:nth-child(2),.report-table.compact td:nth-child(2){text-align:left}.sign{display:flex;justify-content:space-between;margin-top:35px;text-align:center}.sign>div{width:40%}@media print{body{print-color-adjust:exact}}</style></head><body>${commonKop}${content}<script>window.onload=()=>window.print()<\/script></body></html>`);
+  win.document.write(`<html><head><title>${title}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px;color:#111}h2{text-align:center;font-size:16px;margin:4px}.kop{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.kop h1{font-size:15px;margin:0}.kop p{margin:2px;font-size:9px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #222;padding:5px;font-size:8px}th{background:#eee}.report-kop{display:flex;gap:14px;align-items:center;border-bottom:3px solid #1e4fbf;padding-bottom:10px}.report-logo{width:58px;height:58px;object-fit:contain}.report-kop h1{font-size:18px;margin:0}.report-kop p{margin:2px 0;font-size:10px}.report-title{text-align:center;font-size:15px;margin:14px 0 10px}.student-info{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #d5d9e2}.student-info div{padding:6px 8px;border-right:1px solid #d5d9e2}.student-info div:last-child{border-right:0}.student-info b{display:block;font-size:9px;color:#667085}.student-info span{font-size:10px}.report-summary,.report-note{background:#f5f8ff;border-left:4px solid #2b63c6;padding:8px 10px;margin:10px 0}.report-summary p,.report-note p{margin:4px 0;font-size:10px;line-height:1.45}.report-section{font-size:12px;margin:12px 0 5px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #cfd5df;padding:5px 6px;font-size:9px;vertical-align:top}.report-table th{background:#eef4ff}.report-table .center{text-align:center}.report-table.compact th,.report-table.compact td{font-size:9px;text-align:center}.report-table.compact th:nth-child(1),.report-table.compact td:nth-child(1),.report-table.compact th:nth-child(2),.report-table.compact td:nth-child(2){text-align:left}.sign{display:flex;justify-content:space-between;margin-top:35px;text-align:center}.sign>div{width:40%}.page-break{page-break-after:always;break-after:page}.character-page{min-height:260mm;box-sizing:border-box}@media print{body{print-color-adjust:exact}.character-page{break-inside:avoid}}</style></head><body>${commonKop}${content}<script>window.onload=()=>window.print()<\/script></body></html>`);
   win.document.close();
 }
 
