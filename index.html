@@ -1540,87 +1540,91 @@ function openCalendar(date=todayISO()){
 }
 
 /* ---------------- Rapor ---------------- */
+function characterDescription(x){
+  if(!x.evidence) return "Belum cukup data untuk menggambarkan perkembangan pada dimensi ini.";
+  const late=x.T||0, absent=(x.S||0)+(x.I||0)+(x.A||0);
+  const level=x.level;
+  const dim=(x.dim?.name||"").toLowerCase();
+  let text="";
+  if(dim.includes("keimanan")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengikuti pembiasaan keagamaan dan membangun konsistensi sikap positif dalam kegiatan sekolah.`;
+  else if(dim.includes("kewargaan")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengikuti kegiatan kebangsaan, menjaga ketertiban, dan menghargai aturan serta kegiatan bersama.`;
+  else if(dim.includes("penalaran kritis")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengikuti kegiatan yang mendorong kemampuan memahami informasi, berpikir, dan memberikan tanggapan.`;
+  else if(dim.includes("kreativitas")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengeksplorasi gagasan dan berpartisipasi dalam kegiatan yang memberi ruang untuk menghasilkan ide atau karya.`;
+  else if(dim.includes("kolaborasi")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam bekerja sama, berpartisipasi, dan menjalankan peran dalam kegiatan bersama.`;
+  else if(dim.includes("kemandirian")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengikuti kegiatan secara bertanggung jawab dan membangun kebiasaan menyelesaikan tugas atau aktivitas secara mandiri.`;
+  else if(dim.includes("kesehatan")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam mengikuti kegiatan yang mendukung kebugaran, kesehatan, dan kebiasaan hidup sehat.`;
+  else if(dim.includes("komunikasi")) text=`Menunjukkan perkembangan ${level.toLowerCase()} dalam menyampaikan tanggapan, mengikuti interaksi, dan berpartisipasi dalam komunikasi yang positif.`;
+  else text=`Menunjukkan perkembangan ${level.toLowerCase()} melalui partisipasi dalam kegiatan pembiasaan yang terhubung dengan dimensi ini.`;
+  if(late>=2) text += " Konsistensi kedisiplinan waktu masih perlu diperkuat.";
+  if(absent>0 && late<2) text += " Konsistensi mengikuti kegiatan perlu terus dipertahankan dan diperkuat.";
+  if(late===0 && absent===0) text += " Konsistensi mengikuti kegiatan pada periode ini sudah baik dan perlu dipertahankan.";
+  return text;
+}
+function characterStrength(r){
+  const scored=Object.values(r.byDim).filter(x=>x.score!=null);
+  if(!scored.length)return "Belum cukup data untuk menyusun ringkasan perkembangan karakter.";
+  const avg=scored.reduce((a,x)=>a+x.score,0)/scored.length;
+  const level=avg<1.75?"Perlu Bimbingan":avg<2.5?"Cukup":avg<3.5?"Baik":"Sangat Baik";
+  const top=scored.slice().sort((a,b)=>b.score-a.score).slice(0,2).map(x=>x.dim.name);
+  return `Berdasarkan evidence kegiatan pembiasaan pada periode ini, perkembangan karakter peserta didik berada pada kategori ${level}. Perkembangan yang paling menonjol terlihat pada ${top.join(" dan ")}.`;
+}
+function characterFollowUp(r){
+  const scored=Object.values(r.byDim).filter(x=>x.score!=null);
+  const late=scored.reduce((a,x)=>a+x.T,0), absent=scored.reduce((a,x)=>a+x.S+x.I+x.A,0);
+  if(!scored.length)return "Data pembiasaan perlu dilengkapi agar perkembangan karakter dapat dideskripsikan dengan lebih akurat.";
+  if(late>=3)return "Pertahankan partisipasi dalam pembiasaan dan berikan penguatan pada kedisiplinan waktu agar konsistensi hadir tepat waktu semakin baik.";
+  if(absent>=3)return "Pertahankan komunikasi dan pendampingan agar konsistensi mengikuti pembiasaan semakin baik.";
+  return "Pertahankan kebiasaan positif yang sudah terbentuk dan kembangkan penerapannya dalam kegiatan pembelajaran maupun kehidupan sehari-hari.";
+}
 function studentReport(studentId,from,to){
   const s=state.students.find(x=>x.id===studentId);
   if(!s)return null;
-
   const ops=effectiveOpportunities(from,to);
   const byDim={};
-  state.dimensions.forEach(d=>byDim[d.id]={
-    dim:d,
-    total:0,
-    weighted:0,
-    evidence:0,
-    H:0,
-    T:0,
-    S:0,
-    I:0,
-    A:0
-  });
-
+  state.dimensions.forEach(d=>byDim[d.id]={dim:d,total:0,weighted:0,evidence:0,H:0,T:0,S:0,I:0,A:0,programs:[]});
   const records=[];
-
   ops.forEach(o=>{
     const a=attFor(o.date,o.program.id,s.id);
     const links=state.programDpl.filter(x=>x.habit_program_id===o.program.id);
-
     links.forEach(link=>{
-      const d=byDim[link.dpl_id];
-      if(!d)return;
-
+      const d=byDim[link.dpl_id]; if(!d)return;
       d.total++;
-
-      if(a?.status){
-        d.evidence++;
-        d[a.status==="HADIR"?"H":a.status==="TERLAMBAT"?"T":a.status==="SAKIT"?"S":a.status==="IZIN"?"I":"A"]++;
-        d.weighted += CHARACTER_ATTENDANCE_WEIGHT[a.status] ?? 0;
-      }
+      const key=a?.status==="HADIR"?"H":a?.status==="TERLAMBAT"?"T":a?.status==="SAKIT"?"S":a?.status==="IZIN"?"I":a?.status==="ALFA"?"A":null;
+      if(key){ d.evidence++; d[key]++; d.weighted += CHARACTER_ATTENDANCE_WEIGHT[a.status] ?? 0; }
+      const existing=d.programs.find(p=>p.id===o.program.id);
+      if(existing) existing.count++;
+      else d.programs.push({id:o.program.id,name:o.program.name,weekday:o.program.weekday,count:1});
     });
-
     if(a)records.push({date:o.date,program:o.program,status:a.status});
   });
-
   Object.values(byDim).forEach(x=>{
-    if(!x.evidence){
-      x.score=null;
-      x.level="Belum cukup data";
-      return;
-    }
-
-    // Score 1–4. Terlambat mendapat bobot 75% dari Hadir.
+    if(!x.evidence){x.score=null;x.level="Belum cukup data";return;}
     const raw=(x.weighted/x.total)*4;
     x.score=Math.max(1,Math.min(4,Math.round(raw*10)/10));
-
-    x.level=x.score<1.75
-      ?"Perlu Bimbingan"
-      :x.score<2.5
-        ?"Cukup"
-        :x.score<3.5
-          ?"Baik"
-          :"Sangat Baik";
+    x.level=x.score<1.75?"Perlu Bimbingan":x.score<2.5?"Cukup":x.score<3.5?"Baik":"Sangat Baik";
+    x.description=characterDescription(x);
   });
-
   return {student:s,byDim,records,ops};
 }
-
 views.rapor=()=>{
   const selected=state.selectedRaporStudent||state.students[0]?.id||"";
   const r=studentReport(selected,state.raporFrom,state.raporTo);
-  return layout("Rapor Karakter","Rapor berdasarkan kegiatan pembiasaan dan 8 Dimensi Profil Lulusan.",
+  const className=r?state.classes.find(c=>c.id===r.student.class_id)?.name||"-":"-";
+  return layout("Rapor Karakter","Laporan perkembangan karakter berdasarkan evidence pembiasaan dan Dimensi Profil Lulusan.",
   `<div class="card" style="margin-bottom:14px"><div class="filters">
     <div class="field"><label>Dari</label><input class="input" type="date" value="${state.raporFrom}" onchange="state.raporFrom=this.value;render()"></div>
     <div class="field"><label>Sampai</label><input class="input" type="date" value="${state.raporTo}" onchange="state.raporTo=this.value;render()"></div>
     <div class="field"><label>Siswa</label><select class="select" onchange="state.selectedRaporStudent=this.value;render()">${studentOptions(selected)}</select></div>
     <div style="margin-left:auto;display:flex;align-items:end"><button class="btn btn-primary" onclick="printReport('character')">🖨 Cetak Rapor</button></div>
   </div></div>
-  ${!r?`<div class="card empty">Belum ada siswa.</div>`:`<div class="grid two">
-    <div class="card"><div class="card-head"><div><h3>${esc(r.student.full_name)}</h3><p>${esc(state.classes.find(c=>c.id===r.student.class_id)?.name||"-")} · ${fmtDate(state.raporFrom)} – ${fmtDate(state.raporTo)}</p></div></div>
-      <div class="dim-list">${Object.values(r.byDim).map(x=>`<div class="dim"><div><strong>${esc(x.dim.name)}</strong><small>${x.evidence?`${x.H} H · ${x.T} T · ${x.S} S · ${x.I} I · ${x.A} A · bobot ${x.weighted.toFixed(2)}/${x.total}`:"Belum cukup data"}</small></div><div class="progress"><span style="width:${x.score?x.score/4*100:0}%"></span></div><div class="dim-score">${x.score??"—"}</div></div>`).join("")}</div>
-    </div>
-    <div class="card"><div class="card-head"><div><h3>Rapor Kegiatan</h3><p>Hadir = 100% · Terlambat = 75% · Sakit/Izin/Alfa = 0% untuk bukti karakter.</p></div></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Kegiatan</th><th>Tanggal</th><th>Status</th></tr></thead><tbody>${r.records.map(x=>`<tr><td>${esc(x.program.name)}</td><td>${fmtDate(x.date)}</td><td>${statusBadge(x.status)}</td></tr>`).join("")||`<tr><td colspan="3" class="empty">Belum ada bukti presensi.</td></tr>`}</tbody></table></div>
-      <div style="margin-top:13px;padding:10px;border-radius:10px;background:#f8f8fc;font-size:9px;color:#72778a">Skala: <b>1</b> Perlu Bimbingan · <b>2</b> Cukup · <b>3</b> Baik · <b>4</b> Sangat Baik. Status <b>Terlambat</b> tetap dihitung hadir pada rekap presensi, tetapi hanya berbobot <b>75%</b> pada karakter.</div>
-    </div>
+  ${!r?`<div class="card empty">Belum ada siswa.</div>`:`<div class="card rapor-preview-card">
+    <div class="rapor-preview-head"><div><span class="eyebrow">LAPORAN PERKEMBANGAN KARAKTER</span><h2>${esc(r.student.full_name)}</h2><p>${esc(className)} · ${fmtDate(state.raporFrom)} – ${fmtDate(state.raporTo)}</p></div><div class="score-puck"><strong>${Object.values(r.byDim).filter(x=>x.score!=null).length? (Object.values(r.byDim).filter(x=>x.score!=null).reduce((a,x)=>a+x.score,0)/Object.values(r.byDim).filter(x=>x.score!=null).length).toFixed(1):"—"}</strong><span>rata-rata</span></div></div>
+    <div class="rapor-summary"><strong>Ringkasan Perkembangan</strong><p>${esc(characterStrength(r))}</p></div>
+    <div class="section-title"><span>01</span> Perkembangan 8 Dimensi Profil Lulusan</div>
+    <div class="dimension-report">${Object.values(r.byDim).map(x=>`<article class="dimension-card"><div class="dimension-top"><div><small>${esc(x.dim.code||"")}</small><h3>${esc(x.dim.name)}</h3></div><div class="level-pill">${esc(x.level)}</div></div><p>${esc(x.description||"Belum cukup data")}</p>${x.score!=null?`<div class="dimension-bottom"><span>Nilai perkembangan</span><strong>${x.score.toFixed(1)} / 4</strong></div>`:""}</article>`).join("")}</div>
+    <div class="section-title"><span>02</span> Bukti Kehadiran Pembiasaan</div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Pembiasaan</th><th>Dimensi</th><th>H</th><th>T</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${r.records.length?state.programs.filter(p=>r.records.some(x=>x.program.id===p.id)).map(p=>{const rows=r.records.filter(x=>x.program.id===p.id);const c={H:0,T:0,S:0,I:0,A:0};rows.forEach(x=>c[x.status==="HADIR"?"H":x.status==="TERLAMBAT"?"T":x.status==="SAKIT"?"S":x.status==="IZIN"?"I":"A"]++);const dims=state.programDpl.filter(x=>x.habit_program_id===p.id).map(x=>state.dimensions.find(d=>d.id===x.dpl_id)?.name).filter(Boolean).join(" + ");return `<tr><td><strong>${esc(p.name)}</strong></td><td>${esc(dims||"-")}</td><td>${c.H}</td><td>${c.T}</td><td>${c.S}</td><td>${c.I}</td><td>${c.A}</td></tr>`}).join(""):`<tr><td colspan="7" class="empty">Belum ada evidence presensi pada periode ini.</td></tr>`}</tbody></table></div>
+    <div class="rapor-note"><strong>Catatan Penguatan</strong><p>${esc(characterFollowUp(r))}</p></div>
   </div>`}`);
 };
 
@@ -1638,7 +1642,9 @@ views.pengaturan=()=>{
       <div class="field"><label>Kabupaten/Kota</label><input class="input" id="ssCity" value="${esc(s.city_regency||"")}"></div>
       <div class="field"><label>Provinsi</label><input class="input" id="ssProvince" value="${esc(s.province||"")}"></div>
       <div class="field"><label>Kepala Sekolah</label><input class="input" id="ssPrincipal" value="${esc(s.principal_name||"")}"></div>
-      <div class="field"><label>NIP</label><input class="input" id="ssNip" value="${esc(s.principal_nip||"")}"></div>
+      <div class="field"><label>NIP Kepala Sekolah</label><input class="input" id="ssNip" value="${esc(s.principal_nip||"")}"></div>
+      <div class="field"><label>Nama Kesiswaan</label><input class="input" id="ssKesiswaan" value="${esc(s.kesiswaan_name||"")}" placeholder="Nama penanggung jawab Kesiswaan"></div>
+      <div class="field"><label>NIP/NIK Kesiswaan <span style="font-weight:400;color:#8b90a3">(opsional)</span></label><input class="input" id="ssKesiswaanNip" value="${esc(s.kesiswaan_nip||"")}" placeholder="Opsional"></div>
       <div class="field"><label>Logo URL</label><input class="input" id="ssLogo" value="${esc(s.logo_url||"")}"></div>
       <div class="field"><label>Website</label><input class="input" id="ssWebsite" value="${esc(s.website||"")}"></div>
     </div>
@@ -1647,7 +1653,7 @@ views.pengaturan=()=>{
   <div class="card"><div class="card-head"><div><h3>Preview Kop</h3><p>Identitas laporan</p></div></div><div class="print-preview"><div class="kop">${s.logo_url?`<img src="${esc(s.logo_url)}">`:""}<h2>${esc((s.school_name||"SMKS GRAFIKA").toUpperCase())}</h2><p>${esc(s.address||"")}</p><p>NPSN ${esc(s.npsn||"")}</p></div><div style="text-align:center;font-weight:800;font-size:10px">LAPORAN KESISWAAN</div></div></div></div>`);
 };
 async function saveSchoolSettings(){
-  const payload={school_name:document.getElementById("ssName").value.trim(),npsn:document.getElementById("ssNpsn").value.trim()||null,address:document.getElementById("ssAddress").value.trim()||null,village:document.getElementById("ssVillage").value.trim()||null,district:document.getElementById("ssDistrict").value.trim()||null,city_regency:document.getElementById("ssCity").value.trim()||null,province:document.getElementById("ssProvince").value.trim()||null,principal_name:document.getElementById("ssPrincipal").value.trim()||null,principal_nip:document.getElementById("ssNip").value.trim()||null,logo_url:document.getElementById("ssLogo").value.trim()||null,website:document.getElementById("ssWebsite").value.trim()||null,updated_by:state.user.id};
+  const payload={school_name:document.getElementById("ssName").value.trim(),npsn:document.getElementById("ssNpsn").value.trim()||null,address:document.getElementById("ssAddress").value.trim()||null,village:document.getElementById("ssVillage").value.trim()||null,district:document.getElementById("ssDistrict").value.trim()||null,city_regency:document.getElementById("ssCity").value.trim()||null,province:document.getElementById("ssProvince").value.trim()||null,principal_name:document.getElementById("ssPrincipal").value.trim()||null,principal_nip:document.getElementById("ssNip").value.trim()||null,kesiswaan_name:document.getElementById("ssKesiswaan").value.trim()||null,kesiswaan_nip:document.getElementById("ssKesiswaanNip").value.trim()||null,logo_url:document.getElementById("ssLogo").value.trim()||null,website:document.getElementById("ssWebsite").value.trim()||null,updated_by:state.user.id};
   let q=state.school?.id?supabaseClient.from("school_settings").update(payload).eq("id",state.school.id):supabaseClient.from("school_settings").insert(payload);
   const {error}=await q;if(error)throw error;await loadAll();updateIdentity();render();toast("Pengaturan tersimpan.");
 }
@@ -1670,13 +1676,22 @@ function printReport(type){
   } else {
     const r=studentReport(state.selectedRaporStudent||state.students[0]?.id,state.raporFrom,state.raporTo);
     title="Rapor Karakter";
-    content=`<h2>RAPOR KARAKTER PESERTA DIDIK</h2><p><b>${esc(r?.student?.full_name||"-")}</b> · ${esc(state.classes.find(c=>c.id===r?.student?.class_id)?.name||"-")}</p>
-    <table><tr><th>Dimensi Profil Lulusan</th><th>Nilai</th><th>Deskripsi</th></tr>${r?Object.values(r.byDim).map(x=>`<tr><td>${esc(x.dim.name)}</td><td>${x.score??"—"}</td><td>${x.evidence?`${x.level}. Berdasarkan ${x.evidence} bukti; H ${x.H}, T ${x.T}, S ${x.S}, I ${x.I}, A ${x.A}.`:"Belum cukup data"}</td></tr>`).join(""):""}</table>
-    <div class="sign"><div>Kesiswaan<br><br><br><b>${esc(state.profile?.full_name||"")}</b></div><div>Kepala Sekolah<br><br><br><b>${esc(school.principal_name||"")}</b><br>NIP. ${esc(school.principal_nip||"")}</div></div>`;
+    const className=state.classes.find(c=>c.id===r?.student?.class_id)?.name||"-";
+    const programs=state.programs.filter(p=>r?.records.some(x=>x.program.id===p.id));
+    content=`<div class="report-kop">${school.logo_url?`<img src="${esc(school.logo_url)}" class="report-logo">`:""}<div><h1>${esc((school.school_name||"").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div></div>
+    <h2 class="report-title">LAPORAN PERKEMBANGAN KARAKTER PESERTA DIDIK</h2>
+    <div class="student-info"><div><b>Nama</b><span>${esc(r?.student?.full_name||"-")}</span></div><div><b>Kelas</b><span>${esc(className)}</span></div><div><b>Periode</b><span>${fmtDate(state.raporFrom)} s.d. ${fmtDate(state.raporTo)}</span></div></div>
+    <div class="report-summary"><b>Ringkasan Perkembangan</b><p>${esc(r?characterStrength(r):"Belum cukup data")}</p></div>
+    <h3 class="report-section">1. Perkembangan Dimensi Profil Lulusan</h3>
+    <table class="report-table"><tr><th>Dimensi Profil Lulusan</th><th>Capaian</th><th>Deskripsi Perkembangan</th></tr>${r?Object.values(r.byDim).map(x=>`<tr><td><b>${esc(x.dim.name)}</b></td><td class="center">${x.score!=null?`${x.score.toFixed(1)}<br><small>${esc(x.level)}</small>`:"—<br><small>Belum cukup data</small>"}</td><td>${esc(x.description||"Belum cukup data untuk menggambarkan perkembangan pada dimensi ini.")}</td></tr>`).join(""):""}</table>
+    <h3 class="report-section">2. Bukti Kehadiran pada Kegiatan Pembiasaan</h3>
+    <table class="report-table compact"><tr><th>Pembiasaan</th><th>Dimensi Profil Lulusan</th><th>H</th><th>T</th><th>S</th><th>I</th><th>A</th></tr>${programs.map(p=>{const c={H:0,T:0,S:0,I:0,A:0};(r.records||[]).filter(x=>x.program.id===p.id).forEach(x=>c[x.status==="HADIR"?"H":x.status==="TERLAMBAT"?"T":x.status==="SAKIT"?"S":x.status==="IZIN"?"I":"A"]++);const dims=state.programDpl.filter(x=>x.habit_program_id===p.id).map(x=>state.dimensions.find(d=>d.id===x.dpl_id)?.name).filter(Boolean).join(" + ");return `<tr><td>${esc(p.name)}</td><td>${esc(dims||"-")}</td><td>${c.H}</td><td>${c.T}</td><td>${c.S}</td><td>${c.I}</td><td>${c.A}</td></tr>`}).join("")}</table>
+    <div class="report-note"><b>Catatan Penguatan</b><p>${esc(r?characterFollowUp(r):"Data belum cukup untuk menyusun catatan penguatan.")}</p></div>
+    <div class="sign"><div>Mengetahui,<br>Kepala Sekolah<br><br><br><b>${esc(school.principal_name||"")}</b>${school.principal_nip?`<br>NIP. ${esc(school.principal_nip)}`:""}</div><div>Mengetahui,<br>Kesiswaan<br><br><br><b>${esc(school.kesiswaan_name||"")}</b>${school.kesiswaan_nip?`<br>NIP/NIK. ${esc(school.kesiswaan_nip)}`:""}</div></div>`;
   }
   const win=window.open("","_blank");
   if(!win){toast("Popup diblokir browser.");return;}
-  win.document.write(`<html><head><title>${title}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px;color:#111}h2{text-align:center;font-size:16px;margin:4px}.kop{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.kop h1{font-size:15px;margin:0}.kop p{margin:2px;font-size:9px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #222;padding:5px;font-size:8px}th{background:#eee}.sign{display:flex;justify-content:space-between;margin-top:35px;text-align:center}.sign>div{width:40%}@media print{body{print-color-adjust:exact}}</style></head><body><div class="kop"><h1>${esc((school.school_name||"SMKS GRAFIKA").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div>${content}<script>window.onload=()=>window.print()<\/script></body></html>`);
+  win.document.write(`<html><head><title>${title}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:10px;color:#111}h2{text-align:center;font-size:16px;margin:4px}.kop{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.kop h1{font-size:15px;margin:0}.kop p{margin:2px;font-size:9px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #222;padding:5px;font-size:8px}th{background:#eee}.report-kop{display:flex;gap:14px;align-items:center;border-bottom:3px solid #1e4fbf;padding-bottom:10px}.report-logo{width:58px;height:58px;object-fit:contain}.report-kop h1{font-size:18px;margin:0}.report-kop p{margin:2px 0;font-size:10px}.report-title{text-align:center;font-size:15px;margin:14px 0 10px}.student-info{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #d5d9e2}.student-info div{padding:6px 8px;border-right:1px solid #d5d9e2}.student-info div:last-child{border-right:0}.student-info b{display:block;font-size:9px;color:#667085}.student-info span{font-size:10px}.report-summary,.report-note{background:#f5f8ff;border-left:4px solid #2b63c6;padding:8px 10px;margin:10px 0}.report-summary p,.report-note p{margin:4px 0;font-size:10px;line-height:1.45}.report-section{font-size:12px;margin:12px 0 5px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #cfd5df;padding:5px 6px;font-size:9px;vertical-align:top}.report-table th{background:#eef4ff}.report-table .center{text-align:center}.report-table.compact th,.report-table.compact td{font-size:9px;text-align:center}.report-table.compact th:nth-child(1),.report-table.compact td:nth-child(1),.report-table.compact th:nth-child(2),.report-table.compact td:nth-child(2){text-align:left}.sign{display:flex;justify-content:space-between;margin-top:35px;text-align:center}.sign>div{width:40%}@media print{body{print-color-adjust:exact}}</style></head><body><div class="kop"><h1>${esc((school.school_name||"SMKS GRAFIKA").toUpperCase())}</h1><p>${esc(school.address||"")}</p><p>NPSN ${esc(school.npsn||"")}</p></div>${content}<script>window.onload=()=>window.print()<\/script></body></html>`);
   win.document.close();
 }
 
