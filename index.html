@@ -37,6 +37,16 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 .mobile-overlay{display:none}
 @media(max-width:1100px){.stats{grid-template-columns:repeat(2,1fr)}.two,.hero-grid{grid-template-columns:1fr}.week-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:780px){.sidebar{transform:translateX(-100%);transition:.25s}.sidebar.open{transform:none}.mobile-overlay.show{display:block;position:fixed;inset:0;background:#20223555;z-index:25}.main{margin-left:0}.topbar{padding:0 15px}.mobile-menu{display:block}.page{padding:20px 15px}.page-head{display:block}.head-actions{margin-top:13px}.week-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.full{grid-column:auto}.stats{grid-template-columns:1fr}.calendar{grid-template-columns:repeat(7,minmax(80px,1fr));overflow:auto}.calendar>*{min-width:80px}}
+
+.login-page{min-height:calc(100vh - 74px);padding:0!important;max-width:none!important;background:#f7f7fb}
+.login-shell{min-height:100vh;display:grid;grid-template-columns:1.08fr .92fr;background:#fff}
+.login-visual{position:relative;overflow:hidden;padding:42px 8%;background:linear-gradient(145deg,#6253df,#8274ee 58%,#a095ff);color:#fff;display:flex;flex-direction:column}
+.login-visual:before,.login-visual:after{content:"";position:absolute;border:1px solid #ffffff26;border-radius:50%}.login-visual:before{width:420px;height:420px;right:-180px;top:-150px}.login-visual:after{width:520px;height:520px;left:-280px;bottom:-290px}
+.login-brand{display:flex;align-items:center;gap:12px;position:relative;z-index:1}.login-brand .brand-logo{background:#ffffff22;box-shadow:none}.login-brand strong{display:block;font-size:15px}.login-brand span{font-size:10px;opacity:.75}
+.login-copy{position:relative;z-index:1;margin:auto 0;max-width:600px}.login-pill{display:inline-flex;padding:7px 10px;border:1px solid #ffffff33;background:#ffffff14;border-radius:999px;font-size:9px;font-weight:800;letter-spacing:.12em}.login-copy h1{font-size:clamp(30px,4vw,48px);line-height:1.12;letter-spacing:-.05em;margin:18px 0 14px}.login-copy h1 em{font-style:normal;color:#ddd8ff}.login-copy p{font-size:12px;line-height:1.8;opacity:.78;max-width:520px}.login-points{display:grid;gap:10px;margin-top:24px}.login-points div{display:flex;align-items:center;gap:9px;font-size:10px}.login-points b{width:23px;height:23px;border-radius:7px;display:grid;place-items:center;background:#ffffff18}
+.login-footer{position:relative;z-index:1;font-size:9px;opacity:.58}.login-panel{display:grid;place-items:center;padding:35px;background:#fbfbfe}.login-card{width:min(410px,100%);padding:10px}.login-heading span{font-size:10px;color:var(--primary);font-weight:800}.login-heading h2{font-size:25px;letter-spacing:-.04em;margin:7px 0 6px}.login-heading p{font-size:10px;color:var(--muted);margin:0 0 26px}.login-input{width:100%;padding:12px 13px;font-size:11px}.password-wrap{position:relative}.password-wrap .input{padding-right:80px}.password-toggle{position:absolute;right:5px;top:5px;border:0;background:#f4f3fb;color:var(--primary);border-radius:7px;padding:7px 8px;font-size:8px;font-weight:800}.login-btn{width:100%;justify-content:center;padding:12px;margin-top:16px}.login-btn:disabled{opacity:.65;cursor:wait}.login-error{min-height:16px;color:#d84452;font-size:9px;margin-top:10px}.login-note{margin-top:18px;padding:10px 11px;background:#f5f5fa;border-radius:10px;color:#818598;font-size:8px;line-height:1.6;display:flex;gap:7px}.demo-note{margin-top:16px;text-align:center;font-size:8px;color:#a07a13;background:#fff8df;border:1px solid #f4e4ae;padding:8px;border-radius:8px}.demo-btn{width:100%;justify-content:center;margin-top:7px;font-size:9px}.login-mobile-logo{display:none}
+@media(max-width:780px){.login-shell{grid-template-columns:1fr}.login-visual{display:none}.login-panel{min-height:100vh;padding:25px 20px}.login-mobile-logo{display:block;margin-bottom:30px}.login-mobile-logo .brand-logo{width:48px;height:48px}.login-card{width:min(420px,100%)}}
+
 @media print{.sidebar,.topbar,.no-print{display:none!important}.main{margin:0}.page{padding:0}.card{box-shadow:none}.print-preview{border:0;padding:0}}
 </style>
 </head>
@@ -55,9 +65,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 <header class="topbar">
   <div class="topbar-left"><button class="mobile-menu" onclick="toggleSidebar()">☰</button><div class="crumb">Kesiswaan / <strong id="crumb">Dashboard</strong></div></div>
   <div class="top-actions">
-    <select class="role-select" id="roleSwitch" onchange="switchRole(this.value)">
-      <option value="superadmin">Preview: Superadmin</option><option value="kesiswaan">Preview: Kesiswaan</option><option value="guru">Preview: Guru/Wali Kelas</option><option value="siswa">Preview: Siswa</option>
-    </select>
+    
     <button class="icon-btn" onclick="toast('Tidak ada notifikasi baru')">🔔</button>
     <div class="avatar">SA</div>
   </div>
@@ -68,7 +76,19 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 <div class="modal-back" id="modal"><div class="modal"><div class="modal-head"><h3 id="modalTitle">Form</h3><button class="close" onclick="closeModal()">×</button></div><div class="modal-body" id="modalBody"></div><div class="modal-foot"><button class="btn btn-light" onclick="closeModal()">Batal</button><button class="btn btn-primary" onclick="saveModal()">Simpan Data</button></div></div></div>
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* Supabase config — isi setelah mockup siap dihubungkan */
+const SUPABASE_CONFIG = {
+  url: "https://YOUR-PROJECT.supabase.co",
+  key: "YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
+};
+const DEMO_MODE = true;
+let supabaseClient = null;
+if (!DEMO_MODE && window.supabase && !SUPABASE_CONFIG.url.includes("YOUR-PROJECT")) {
+  supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+}
+
 const DATA={
  school:{name:"SMKS Grafika",npsn:"20606821",address:"Jl. Pendidikan No. 123, Kabupaten Tangerang",principal:"Dwi Septiani, S.T., Gr.",nip:"198708122014032001"},
  stats:{students:486,classes:18,violations:27,followups:14},
@@ -98,7 +118,98 @@ const DATA={
   {day:"Kamis",code:"OLAHRAGA",name:"Olahraga",time:"07.00–07.45",dim:"Kesehatan"},
   {day:"Jumat",code:"PENGAJIAN",name:"Pengajian",time:"07.00–08.00",dim:"Keimanan + Kolaborasi"}
  ]};
-let state={role:"superadmin",tab:"dashboard",month:"September 2026"};
+let state={role:"superadmin",tab:"dashboard",month:"September 2026",authenticated:false,user:null};
+
+function renderApp(){
+  if(!state.authenticated){ renderLogin(); return; }
+  renderNav(); render();
+}
+
+function renderLogin(){
+  document.querySelector(".sidebar").style.display="none";
+  document.querySelector(".main").style.marginLeft="0";
+  document.querySelector(".topbar").style.display="none";
+  const p=document.getElementById("page");
+  p.className="login-page";
+  p.innerHTML=`
+    <div class="login-shell">
+      <div class="login-visual">
+        <div class="login-brand"><div class="brand-logo">KG</div><div><strong>SMKS Grafika</strong><span>Sistem Informasi Kesiswaan</span></div></div>
+        <div class="login-copy">
+          <div class="login-pill">✦ KESISWAAN DIGITAL</div>
+          <h1>Kelola pembinaan siswa dengan lebih <em>terarah.</em></h1>
+          <p>Presensi pembiasaan, karakter, pelanggaran, tindak lanjut, dan laporan sekolah dalam satu sistem.</p>
+          <div class="login-points">
+            <div><b>✓</b><span>Data terpusat dan terstruktur</span></div>
+            <div><b>✓</b><span>Akses sesuai peran pengguna</span></div>
+            <div><b>✓</b><span>Laporan siap dicetak</span></div>
+          </div>
+        </div>
+        <div class="login-footer">© 2026 SMKS Grafika · Sistem Informasi Kesiswaan</div>
+      </div>
+      <div class="login-panel">
+        <div class="login-mobile-logo"><div class="brand-logo">KG</div></div>
+        <div class="login-card">
+          <div class="login-heading"><span>Selamat datang 👋</span><h2>Masuk ke Kesiswaan</h2><p>Gunakan akun sekolah Anda untuk melanjutkan.</p></div>
+          <form onsubmit="handleLogin(event)">
+            <div class="field"><label>Email</label><input id="loginEmail" class="input login-input" type="email" autocomplete="username" placeholder="nama@sekolah.sch.id" required></div>
+            <div class="field" style="margin-top:13px"><label>Password</label><div class="password-wrap"><input id="loginPassword" class="input login-input" type="password" autocomplete="current-password" placeholder="Masukkan password" required><button type="button" onclick="togglePassword()" class="password-toggle" id="passToggle">Tampilkan</button></div></div>
+            <div id="loginError" class="login-error"></div>
+            <button id="loginBtn" class="btn btn-primary login-btn" type="submit">Masuk ke Sistem <span>→</span></button>
+          </form>
+          <div class="login-note"><span>🔒</span> Akses dilindungi Supabase Auth dan Row Level Security.</div>
+          ${DEMO_MODE ? '<div class="demo-note">MODE MOCKUP: gunakan tombol demo di bawah untuk melihat dashboard.</div><button type="button" class="btn btn-light demo-btn" onclick="demoLogin()">Masuk sebagai Superadmin (Demo)</button>' : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function handleLogin(e){
+  e.preventDefault();
+  const btn=document.getElementById("loginBtn"), err=document.getElementById("loginError");
+  err.textContent="";
+  btn.disabled=true; btn.innerHTML="Memeriksa akun…";
+  try{
+    if(DEMO_MODE){
+      await new Promise(r=>setTimeout(r,650));
+      throw new Error("Mode mockup aktif. Gunakan tombol 'Masuk sebagai Superadmin (Demo)' atau matikan DEMO_MODE saat Supabase siap.");
+    }
+    const email=document.getElementById("loginEmail").value.trim();
+    const password=document.getElementById("loginPassword").value;
+    const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    const {data:profile,error:profileError}=await supabaseClient.from("profiles").select("id,full_name,email,role,is_active").eq("id",data.user.id).single();
+    if(profileError) throw profileError;
+    if(!profile.is_active) throw new Error("Akun Anda tidak aktif. Hubungi administrator.");
+    state.authenticated=true; state.user=profile; state.role=profile.role||"guru"; state.tab="dashboard";
+    restoreShell(); renderApp();
+  }catch(ex){
+    err.textContent=ex.message||"Login gagal. Periksa kembali email dan password.";
+  }finally{
+    btn.disabled=false; btn.innerHTML='Masuk ke Sistem <span>→</span>';
+  }
+}
+function demoLogin(){
+  state.authenticated=true;state.user={full_name:"Administrator Kesiswaan",email:"admin@smksgrafika.sch.id",role:"superadmin",is_active:true};state.role="superadmin";state.tab="dashboard";restoreShell();renderApp();
+}
+function restoreShell(){
+  document.querySelector(".sidebar").style.display="";
+  document.querySelector(".main").style.marginLeft="";
+  document.querySelector(".topbar").style.display="";
+  document.getElementById("roleSwitch")?.remove();
+  const actions=document.querySelector(".top-actions");
+  if(actions && !document.getElementById("logoutTop")) actions.insertAdjacentHTML("beforeend",'<button class="btn btn-light btn-sm" id="logoutTop" onclick="logout()">Keluar</button>');
+  const side=document.querySelector(".user-mini");
+  if(side && state.user) side.innerHTML='<div class="avatar">'+initials(state.user.full_name||"User")+'</div><div><strong>'+esc(state.user.full_name||"Pengguna")+'</strong><span>'+esc(roleLabel(state.role))+'</span></div>';
+}
+function roleLabel(r){return r==="superadmin"?"Superadmin":r==="kesiswaan"?"Kesiswaan":r==="guru"?"Guru / Wali Kelas":"Siswa"}
+function togglePassword(){const x=document.getElementById("loginPassword"),b=document.getElementById("passToggle");if(!x)return;x.type=x.type==="password"?"text":"password";b.textContent=x.type==="password"?"Tampilkan":"Sembunyikan"}
+async function logout(){
+  if(supabaseClient) await supabaseClient.auth.signOut();
+  state.authenticated=false;state.user=null;state.role=null;state.tab="dashboard";
+  const top=document.getElementById("logoutTop"); if(top)top.remove();
+  renderApp();
+}
 const menus={
  superadmin:[["dashboard","▦","Dashboard"],["presensi","✓","Presensi Pembiasaan"],["pelanggaran","!","Poin Pelanggaran"],["tindaklanjut","↗","Tindak Lanjut"],["rapor","◈","Rapor Karakter"],["rekap","▤","Rekap Pelanggaran"],["master","⚙","Master Pembiasaan"],["kalender","▣","Kalender Sekolah"],["siswa","♙","Data Siswa"],["pengaturan","⚙","Pengaturan Sekolah"]],
  kesiswaan:[["dashboard","▦","Dashboard"],["presensi","✓","Presensi Pembiasaan"],["pelanggaran","!","Poin Pelanggaran"],["tindaklanjut","↗","Tindak Lanjut"],["rapor","◈","Rapor Karakter"],["rekap","▤","Rekap Pelanggaran"],["master","⚙","Master Pembiasaan"],["kalender","▣","Kalender Sekolah"],["siswa","♙","Data Siswa"]],
@@ -108,7 +219,7 @@ const menus={
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function initials(n){return n.split(" ").map(x=>x[0]).slice(0,2).join("").toUpperCase()}
 function renderNav(){document.getElementById("nav").innerHTML=menus[state.role].map(m=>`<button class="${state.tab===m[0]?"active":""}" onclick="go('${m[0]}')"><span class="ico">${m[1]}</span>${m[2]}</button>`).join("")}
-function go(tab){state.tab=tab;renderNav();render();if(innerWidth<780)toggleSidebar(false)}
+function go(tab){state.tab=tab;renderApp();if(innerWidth<780)toggleSidebar(false)}
 function switchRole(role){state.role=role;state.tab="dashboard";document.getElementById("sideRole").textContent=role==="guru"?"Guru / Wali Kelas":role==="siswa"?"Siswa":role==="kesiswaan"?"Kesiswaan":"Superadmin";renderNav();render()}
 function toggleSidebar(force){const s=document.getElementById("sidebar"),o=document.getElementById("overlay");if(force===false){s.classList.remove("open");o.classList.remove("show");return}s.classList.toggle("open");o.classList.toggle("show")}
 function layout(title,sub,body,actions=""){document.getElementById("crumb").textContent=title;return `<div class="page-head"><div><h1>${title}</h1><p>${sub}</p></div><div class="head-actions">${actions}</div></div>${body}`}
@@ -188,7 +299,7 @@ function openCalendar(){openModal("Atur Kalender Sekolah",`<div class="form-grid
 function openStudent(){openModal("Tambah Peserta Didik",`<div class="form-grid"><div class="field"><label>NIS</label><input class="input"></div><div class="field"><label>NISN</label><input class="input"></div><div class="field"><label>Nama Lengkap</label><input class="input"></div><div class="field"><label>Kelas</label><select class="select"><option>X DKV 1</option><option>XI DKV 2</option><option>XII DKV 1</option></select></div><div class="field"><label>Jenis Kelamin</label><select class="select"><option>Laki-laki</option><option>Perempuan</option></select></div></div>`)}
 function printReport(){window.print()}
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200)}
-renderNav();render();
+renderApp();
 </script>
 </body>
 </html>
