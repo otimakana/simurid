@@ -61,6 +61,21 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sidebar{overscroll-behavior:contain}.nav{overscroll-behavior:contain}
 </style>
 
+
+<style>
+/* Import Excel: keep modal itself usable while preview gets its own scroll */
+#importPreview .table-wrap{overflow:auto;max-width:100%}
+#importPreview .table{min-width:680px}
+.import-class-map{min-width:190px;font-size:9px}
+.modal{max-height:min(88dvh,760px);display:flex;flex-direction:column}
+.modal-body{overflow:auto;min-height:0}
+.modal-foot{flex:0 0 auto}
+@media(max-width:780px){
+  .modal{width:calc(100vw - 24px);max-height:92dvh}
+  #importPreview .table{min-width:620px}
+}
+</style>
+
 </head>
 
 <body>
@@ -186,7 +201,8 @@ const state = {
   selectedRaporStudent:"",
   raporFrom:firstDayOfMonth(),
   raporTo:todayISO(),
-  importRows:[]
+  importRows:[],
+  importClassMap:{}
 };
 
 function esc(v){
@@ -715,46 +731,257 @@ function studentRows(){
     .map(s=>`<tr><td>${esc(s.nis||"-")}</td><td>${esc(s.nisn||"-")}</td><td><div class="student"><div class="avatar">${initials(s.full_name)}</div><strong>${esc(s.full_name)}</strong></div></td><td>${esc(state.classes.find(c=>c.id===s.class_id)?.name||"-")}</td><td>${esc(s.gender||"-")}</td><td>${statusBadge(s.is_active?"Aktif":"Nonaktif")}</td><td><button class="btn btn-light btn-sm" onclick="openStudent('${s.id}')">Detail</button></td></tr>`).join("")||`<tr><td colspan="7" class="empty">Tidak ada siswa.</td></tr>`;
 }
 function renderStudentTable(){const x=document.getElementById("studentRows");if(x)x.innerHTML=studentRows();}
+function normalizeClassName(v){
+  return String(v||"")
+    .toUpperCase()
+    .replace(/[‐‑‒–—−]/g,"-")
+    .replace(/[^A-Z0-9]+/g,"")
+    .trim();
+}
+function findClassForImport(className){
+  const raw=String(className||"").trim();
+  if(!raw)return null;
+  const exact=state.classes.find(c=>String(c.name||"").trim().toLowerCase()===raw.toLowerCase());
+  if(exact)return exact;
+
+  const n=normalizeClassName(raw);
+  const normalized=state.classes.find(c=>normalizeClassName(c.name)===n);
+  if(normalized)return normalized;
+
+  // Common school notation: "XTG" ↔ "X TG" ↔ "X-TG".
+  const gradeMajor=/^(XII|XI|X|IX|VIII|VII)(.*)$/i.exec(n);
+  if(gradeMajor){
+    const grade=gradeMajor[1].toUpperCase(), major=gradeMajor[2];
+    const candidate=state.classes.find(c=>{
+      const cn=normalizeClassName(c.name);
+      return cn.startsWith(grade) && cn.slice(grade.length)===major;
+    });
+    if(candidate)return candidate;
+  }
+  return null;
+}
+function classSelectForImport(raw){
+  const matched=findClassForImport(raw);
+  if(matched)return statusBadge("Aktif");
+  const key=String(raw||"");
+  const selected=state.importClassMap[key]||"";
+  return `<select class="select import-class-map" data-raw-class="${esc(key)}" onchange="state.importClassMap[this.dataset.rawClass]=this.value">
+    <option value="">Pilih master kelas...</option>
+    ${state.classes.map(c=>`<option value="${esc(c.id)}" ${selected===c.id?"selected":""}>${esc(c.name)}</option>`).join("")}
+  </select>`;
+}
 function downloadStudentTemplate(){
-  exportXlsx([{NIS:"240101",NISN:"0012345678",Nama_Lengkap:"Nama Siswa",Kelas:state.classes[0]?.name||"X DKV 1",Jenis_Kelamin:"L"}],"Siswa","template-import-siswa.xlsx");
+  const sample=state.classes[0]?.name||"X TG";
+  const rows=[{NIS:"240101",NISN:"0012345678",Nama_Lengkap:"Nama Siswa",Kelas:sample,Jenis_Kelamin:"L"}];
+  if(!window.XLSX){toast("Library Excel belum termuat.");return;}
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb,ws,"Siswa");
+  const classRows=state.classes.map(c=>({Kelas:c.name,Grade:c.grade||"",Jurusan:c.major||""}));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(classRows),"Daftar_Kelas");
+  XLSX.writeFile(wb,"template-import-siswa.xlsx");
 }
 function openImportStudents(){
+  state.importRows=[]; state.importClassMap={};
   openModal("Import Data Siswa",`
     <div class="field"><label>File Excel</label><input class="input" id="studentExcel" type="file" accept=".xlsx,.xls,.csv" onchange="previewStudentExcel(this)"></div>
     <div id="importPreview" style="margin-top:14px"><div class="empty">Pilih file untuk melihat preview.</div></div>
-    <div style="margin-top:12px;font-size:9px;color:#777">Kolom yang dibaca: NIS, NISN, Nama_Lengkap/Nama, Kelas, Jenis_Kelamin/Gender. Nama kelas harus cocok dengan master Kelas.</div>`,
+    <div style="margin-top:12px;font-size:9px;color:#777">
+      Kolom: <b>NIS, NISN, Nama_Lengkap/Nama, Kelas, Jenis_Kelamin/Gender</b>.
+      Sistem akan mencocokkan kelas secara fleksibel, misalnya <b>XTG</b>, <b>X TG</b>, dan <b>X-TG</b>.
+      Jika diperlukan, kelas yang sudah ada tetap akan digunakan.
+    </div>`,
     importStudents,"Import Data"
   );
 }
 async function previewStudentExcel(input){
   const box=document.getElementById("importPreview");
   const file=input.files?.[0]; if(!file)return;
-  const buf=await file.arrayBuffer();
-  const wb=XLSX.read(buf,{type:"array"});
-  const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""});
-  state.importRows=rows.map(r=>({
-    nis:String(r.NIS||r.nis||"").trim(),
-    nisn:String(r.NISN||r.nisn||"").trim(),
-    full_name:String(r.Nama_Lengkap||r.Nama||r["Nama Lengkap"]||"").trim(),
-    class_name:String(r.Kelas||"").trim(),
-    gender:String(r.Jenis_Kelamin||r.Gender||"").trim()
-  }));
-  const valid=state.importRows.filter(r=>r.nis&&r.full_name&&r.class_name);
-  box.innerHTML=`<div class="badge badge-blue">${state.importRows.length} baris dibaca · ${valid.length} siap</div><div class="table-wrap" style="margin-top:8px;max-height:230px"><table class="table"><thead><tr><th>NIS</th><th>Nama</th><th>Kelas</th><th>Status</th></tr></thead><tbody>${state.importRows.slice(0,20).map(r=>{const c=state.classes.find(x=>x.name.toLowerCase()===r.class_name.toLowerCase());return `<tr><td>${esc(r.nis)}</td><td>${esc(r.full_name)}</td><td>${esc(r.class_name)}</td><td>${c?statusBadge("Aktif"):`<span class="badge badge-red">Kelas tidak ditemukan</span>`}</td></tr>`}).join("")}</tbody></table></div>`;
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:"array"});
+    const sheet=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(sheet,{defval:""});
+    state.importRows=rows.map(r=>({
+      nis:String(r.NIS??r.nis??"").trim(),
+      nisn:String(r.NISN??r.nisn??"").trim(),
+      full_name:String(r.Nama_Lengkap??r.Nama??r["Nama Lengkap"]??"").trim(),
+      class_name:String(r.Kelas??"").trim(),
+      gender:String(r.Jenis_Kelamin??r.Gender??"").trim()
+    }));
+    state.importClassMap={};
+    const valid=state.importRows.filter(r=>r.nis&&r.full_name&&r.class_name);
+    const unresolved=[...new Set(state.importRows.map(r=>r.class_name).filter(x=>x&&!findClassForImport(x)))];
+
+    box.innerHTML=`
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span class="badge badge-blue">${state.importRows.length} baris dibaca</span>
+        <span class="badge badge-green">${valid.length} data lengkap</span>
+        <span class="badge ${unresolved.length?"badge-blue":"badge-green"}">${unresolved.length?unresolved.length+" kelas akan dibuat otomatis":"Semua kelas sudah ada"}</span>
+      </div>
+      ${unresolved.length?`
+        <div style="margin-top:10px;padding:10px;border-radius:10px;background:#eef8ff;border:1px solid #cfe7f7;font-size:9px">
+          <b>Kelas baru akan dibuat otomatis.</b> Tidak perlu membuat Master Kelas terlebih dahulu.
+        </div>`:""}
+      <div class="table-wrap" style="margin-top:8px;max-height:300px">
+        <table class="table"><thead><tr><th>NIS</th><th>Nama</th><th>Kelas Excel</th><th>Pemetaan</th></tr></thead>
+        <tbody>
+        ${state.importRows.slice(0,100).map(r=>{
+          const c=findClassForImport(r.class_name);
+          return `<tr>
+            <td>${esc(r.nis)}</td>
+            <td>${esc(r.full_name)}</td>
+            <td><b>${esc(r.class_name||"-")}</b></td>
+            <td>${c?`<span class="badge badge-green">✓ ${esc(c.name)}</span>`:
+              `<span class="badge badge-blue">＋ Akan dibuat: ${esc(r.class_name||"-")}</span>`}</td>
+          </tr>`;
+        }).join("")}
+        </tbody></table>
+      </div>
+      ${state.importRows.length>100?`<div class="muted" style="margin-top:5px">Preview menampilkan 100 baris pertama. Semua baris tetap akan diimport.</div>`:""}`;
+  }catch(e){
+    box.innerHTML=`<div class="badge badge-red">File Excel tidak dapat dibaca: ${esc(e.message)}</div>`;
+  }
 }
 async function importStudents(){
   if(!state.importRows.length)throw new Error("Belum ada file atau data Excel.");
+
   const rows=state.importRows;
   const errors=[];
+
+  // =========================================================
+  // MASTER KELAS:
+  // Tidak perlu diinput terlebih dahulu di aplikasi.
+  // Nama kelas dari Excel otomatis menjadi master pada
+  // public.classes jika belum tersedia.
+  // =========================================================
+  const uniqueClassNames=[...new Set(
+    rows.map(r=>String(r.class_name||"").trim()).filter(Boolean)
+  )];
+
+  if(!uniqueClassNames.length){
+    throw new Error("Kolom Kelas tidak ditemukan atau seluruhnya kosong.");
+  }
+
+  // Pastikan kelas yang sudah ada dimanfaatkan terlebih dahulu.
+  const classMap=new Map();
+  state.classes.forEach(c=>{
+    classMap.set(normalizeClassName(c.name),c);
+  });
+
+  // Buat master kelas yang belum ada.
+  const newClasses=uniqueClassNames
+    .filter(name=>!classMap.has(normalizeClassName(name)))
+    .map(name=>({
+      name:name,
+      grade:deriveGrade(name),
+      major:deriveMajor(name),
+      is_active:true
+    }));
+
+  if(newClasses.length){
+    const {data,error}=await supabaseClient
+      .from("classes")
+      .insert(newClasses)
+      .select("id,name,grade,major,is_active");
+
+    if(error)throw new Error(
+      "Gagal membuat Master Kelas otomatis: "+error.message
+    );
+
+    (data||[]).forEach(c=>{
+      classMap.set(normalizeClassName(c.name),c);
+    });
+  }
+
+  // Ambil ulang master kelas agar ID yang baru dibuat pasti tersedia.
+  const {data:allClasses,error:classError}=await supabaseClient
+    .from("classes")
+    .select("id,name,grade,major,is_active")
+    .eq("is_active",true);
+
+  if(classError)throw classError;
+
+  (allClasses||[]).forEach(c=>{
+    classMap.set(normalizeClassName(c.name),c);
+  });
+
   const payload=rows.map((r,i)=>{
-    const c=state.classes.find(x=>x.name.toLowerCase()===r.class_name.toLowerCase());
-    if(!r.nis||!r.full_name||!c){errors.push(`Baris ${i+2}: NIS, nama, dan kelas wajib; kelas "${r.class_name}" harus ada.`);return null;}
-    return {nis:r.nis,nisn:r.nisn||null,full_name:r.full_name,class_id:c.id,gender:r.gender||null,is_active:true};
+    const className=String(r.class_name||"").trim();
+    const normalized=normalizeClassName(className);
+
+    let c=classMap.get(normalized);
+
+    // Fallback ke pemetaan manual jika memang diperlukan.
+    if(!c && state.importClassMap[className]){
+      c=(allClasses||[]).find(x=>x.id===state.importClassMap[className]);
+    }
+
+    if(!r.nis||!r.full_name||!className){
+      errors.push(`Baris ${i+2}: NIS, nama, dan kelas wajib.`);
+      return null;
+    }
+
+    if(!c){
+      errors.push(`Baris ${i+2}: kelas "${className}" gagal dibuat/ditemukan.`);
+      return null;
+    }
+
+    return {
+      nis:r.nis,
+      nisn:r.nisn||null,
+      full_name:r.full_name,
+      class_id:c.id,
+      gender:r.gender||null,
+      is_active:true
+    };
   }).filter(Boolean);
-  if(errors.length)throw new Error(errors.slice(0,5).join(" | "));
-  const {error}=await supabaseClient.from("students").upsert(payload,{onConflict:"nis"});
+
+  if(errors.length){
+    throw new Error(
+      errors.slice(0,8).join(" | ")+
+      (errors.length>8?` | dan ${errors.length-8} error lainnya.`:"")
+    );
+  }
+
+  const {error}=await supabaseClient
+    .from("students")
+    .upsert(payload,{onConflict:"nis"});
+
   if(error)throw error;
-  state.importRows=[]; await loadAll(); updateIdentity(); render(); toast(`${payload.length} siswa berhasil diimport.`);
+
+  state.importRows=[];
+  state.importClassMap={};
+
+  await loadAll();
+  updateIdentity();
+  render();
+
+  toast(
+    `${payload.length} siswa berhasil diimport. `+
+    `${newClasses.length} master kelas baru dibuat otomatis.`
+  );
+}
+
+// XTG -> X, TG
+// X TG -> X, TG
+// XI DKV 1 -> XI, DKV 1
+// XII RPL 2 -> XII, RPL 2
+function deriveGrade(className){
+  const s=String(className||"").trim().toUpperCase();
+  const m=s.match(/^(XII|XI|X|IX|VIII|VII)/);
+  return m?m[1]:null;
+}
+
+function deriveMajor(className){
+  const s=String(className||"").trim().toUpperCase();
+  const grade=deriveGrade(s);
+  if(!grade)return null;
+
+  let rest=s.slice(grade.length).trim();
+  rest=rest.replace(/^[\s\-]+/,"").trim();
+
+  return rest||null;
 }
 function openStudent(id=""){
   const s=state.students.find(x=>x.id===id)||{};
