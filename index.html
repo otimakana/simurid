@@ -796,16 +796,20 @@ async function reloadAttendance(){
   if(error)throw error;
   state.attendance=data||[];
 }
-async function chooseAttendance(date,pid,sid,status){
+async function chooseAttendance(date,pid,sid,status,clickedButton){
   if(date>todayISO()){toast("Tanggal mendatang dikunci.");return;}
   if(calendarStatus(date)!=="NORMAL"){toast("Tanggal LIBUR/DITIADAKAN tidak dapat diisi.");return;}
 
-  setDraft(date,pid,sid,status,{
-    attendance_time:null,
-    late_minutes:0,
-    late_notes:null
-  });
-  render();
+  // Jangan render ulang seluruh halaman ketika memilih H/S/I/A/T.
+  // Render ulang sebelumnya membuat posisi scroll kembali ke atas,
+  // sehingga ketika operator memilih siswa paling bawah terasa "meloncat".
+  setDraft(date,pid,sid,status,{attendance_time:null,late_minutes:0,late_notes:null});
+
+  const wrap=clickedButton?.closest?.(".att-choice-wrap");
+  if(wrap){
+    wrap.querySelectorAll(".att-choice").forEach(btn=>btn.classList.remove("selected"));
+    clickedButton.classList.add("selected");
+  }
 }
 
 function statusButton(date,pid,sid,status,current){
@@ -825,7 +829,7 @@ function statusButton(date,pid,sid,status,current){
   };
   return `<button class="att-choice ${statusClass(status)} ${current===status?"selected":""}"
     title="${titles[status]}"
-    onclick="chooseAttendance('${date}','${pid}','${sid}','${status}')">${labels[status]}</button>`;
+    onclick="chooseAttendance('${date}','${pid}','${sid}','${status}',this)">${labels[status]}</button>`;
 }
 
 function attendanceCell(date,pid,sid){
