@@ -80,12 +80,12 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 <script>
 /* Supabase config — isi setelah mockup siap dihubungkan */
 const SUPABASE_CONFIG = {
-  url: "https://YOUR-PROJECT.supabase.co",
-  key: "YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY"
+  url: "https://sruriztxvcnzfpvrjeno.supabase.co",
+  key: "sb_publishable_I6UjJQB18a1YsyoToYYfaw_XvoEbmef"
 };
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 let supabaseClient = null;
-if (!DEMO_MODE && window.supabase && !SUPABASE_CONFIG.url.includes("YOUR-PROJECT")) {
+if (!DEMO_MODE && window.supabase && SUPABASE_CONFIG.url && SUPABASE_CONFIG.key) {
   supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
 }
 
