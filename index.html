@@ -170,6 +170,61 @@ html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sideb
   color:#7d8495;
 }
 </style>
+
+<style>
+.att-choice-wrap{
+  display:flex;
+  justify-content:center;
+  gap:4px;
+  min-width:175px;
+}
+.att-choice{
+  width:29px;
+  height:29px;
+  padding:0;
+  border:1px solid #e1e6eb;
+  border-radius:8px;
+  background:#f8fafc;
+  color:#8a94a1;
+  font-size:9px;
+  font-weight:900;
+  transition:.15s ease;
+}
+.att-choice:hover{
+  transform:translateY(-1px);
+  box-shadow:0 4px 9px rgba(35,54,70,.08);
+}
+.att-choice.selected.h{background:#42bb82;border-color:#42bb82;color:#fff}
+.att-choice.selected.s{background:#43b9dc;border-color:#43b9dc;color:#fff}
+.att-choice.selected.i{background:#f1c400;border-color:#f1c400;color:#fff}
+.att-choice.selected.a{background:#df3d4d;border-color:#df3d4d;color:#fff}
+.att-choice.selected.t{background:#f2a900;border-color:#f2a900;color:#fff}
+.att-choice.h:hover{border-color:#42bb82;color:#16885b}
+.att-choice.s:hover{border-color:#43b9dc;color:#1684a9}
+.att-choice.i:hover{border-color:#f1c400;color:#a37c00}
+.att-choice.a:hover{border-color:#df3d4d;color:#d84654}
+.att-choice.t:hover{border-color:#f2a900;color:#b77600}
+.att-choice-wrap .att-status{
+  width:100%;
+  min-width:165px;
+  border:1px dashed #dce2e9;
+  border-radius:10px;
+  padding:8px;
+  text-align:center;
+}
+.character-weight-note{
+  padding:9px 11px;
+  border-radius:10px;
+  background:#fff8e8;
+  color:#8a6500;
+  font-size:9px;
+  margin-top:10px;
+}
+@media(max-width:780px){
+  .att-choice-wrap{min-width:160px;gap:3px}
+  .att-choice{width:27px;height:30px}
+}
+</style>
 </head>
 
 <body>
@@ -269,6 +324,17 @@ const MENU = [
     ["pengaturan","⚙","Pengaturan Sekolah"]
   ]}
 ];
+
+/* Bobot karakter: H = 100%, T = 75%, S/I/A = 0%.
+   Terlambat tetap dihitung hadir pada rekap presensi, tetapi
+   kontribusinya terhadap nilai karakter dikurangi. */
+const CHARACTER_ATTENDANCE_WEIGHT = {
+  HADIR:1,
+  TERLAMBAT:0.75,
+  SAKIT:0,
+  IZIN:0,
+  ALFA:0
+};
 
 const state = {
   tab:"dashboard",
@@ -412,7 +478,7 @@ async function loadAll(){
     supabaseClient.from("habit_programs").select("id,name,code,weekday,description,start_time,end_time,is_active").eq("is_active",true).order("weekday").order("start_time"),
     supabaseClient.from("dpl_dimensions").select("*").eq("is_active",true).order("sort_order"),
     supabaseClient.from("habit_program_dpl").select("*"),
-    supabaseClient.from("habit_attendance").select("id,attendance_date,habit_program_id,student_id,status,notes,attendance_time,late_minutes,late_notes,recorded_by"),
+    supabaseClient.from("habit_attendance").select("id,attendance_date,habit_program_id,student_id,status,notes,recorded_by"),
     supabaseClient.from("student_violations").select("id,student_id,violation_type_id,violation_date,points,description,status,recorded_by,students(id,nis,full_name,class_id,classes(name)),violation_types(id,name,points)").order("violation_date",{ascending:false}),
     supabaseClient.from("violation_types").select("*").order("name"),
     supabaseClient.from("violation_follow_ups").select("id,violation_id,follow_up_date,actor_id,action_type,action_description,notes,status,created_at,recorded_by").order("follow_up_date",{ascending:false}),
@@ -608,12 +674,12 @@ function attFor(date,programId,studentId){
 function draftKey(date,pid,sid){return `${date}__${pid}__${sid}`;}
 function getDraft(date,pid,sid){
   const k=draftKey(date,pid,sid);
-  if(Object.prototype.hasOwnProperty.call(state.attendanceDraft,k))return state.attendanceDraft[k];
+  if(Object.prototype.hasOwnProperty.call(state.attendanceDraft,k)){
+    return state.attendanceDraft[k];
+  }
   const existing=attFor(date,pid,sid);
-  if(existing)return {status:existing.status,attendance_time:existing.attendance_time||null,late_minutes:existing.late_minutes||0,late_notes:existing.late_notes||null};
-  // Like the practical E-SISWA workflow: an effective past/current
-  // opportunity starts as H and can be changed before saving.
-  return {status:"HADIR",attendance_time:null,late_minutes:0,late_notes:null};
+  if(existing)return {status:existing.status};
+  return {status:"HADIR"};
 }
 function setDraft(date,pid,sid,status,extra={}){
   state.attendanceDraft[draftKey(date,pid,sid)]={status,...extra};
@@ -651,7 +717,7 @@ views.presensi=()=>{
         <div class="field"><label>Kelas</label><select class="select" onchange="state.attendanceClass=this.value;state.attendanceDraft={};render()">${classOptions(cls,"Pilih Kelas")}</select></div>
         <div class="field"><label></label><button class="btn btn-light" onclick="setCurrentWeek()">Minggu ini</button></div>
       </div>
-      <div class="att-help">ⓘ Satu kelas ditampilkan sekaligus untuk <b>Senin–Jumat</b>. Nama kegiatan mengikuti Master Pembiasaan: <b>Senin = Upacara, Selasa = Dhuha, Rabu = Literasi, Kamis = Olahraga, Jumat = Pengajian</b>. Data tanggal yang sudah lewat dibaca dari database; tanggal mendatang terkunci.</div>
+      <div class="att-help">ⓘ Satu kelas ditampilkan sekaligus untuk <b>Senin–Jumat</b>. Setiap kolom hari tetap menampilkan kegiatan pembiasaan. Klik langsung <b>H</b>, <b>S</b>, <b>I</b>, <b>A</b>, atau <b>T</b> untuk menetapkan status. Tidak perlu memasukkan jam keterlambatan.</div>
     </div>
 
     ${!hasClass?`<div class="empty" style="padding:55px">Pilih kelas terlebih dahulu untuk menampilkan presensi.</div>`:
@@ -698,14 +764,14 @@ views.presensi=()=>{
     </div>
     <div class="att-legend">
       <div class="att-legend-item"><span class="att-dot h">H</span> Hadir</div>
-      <div class="att-legend-item"><span class="att-dot t">T</span> Terlambat</div>
       <div class="att-legend-item"><span class="att-dot s">S</span> Sakit</div>
       <div class="att-legend-item"><span class="att-dot i">I</span> Izin</div>
       <div class="att-legend-item"><span class="att-dot a">A</span> Alfa</div>
+      <div class="att-legend-item"><span class="att-dot t">T</span> Terlambat</div>
       <div class="att-legend-item" style="color:var(--primary);font-weight:800">▣ Senin–Jumat</div>
     </div>
     <div class="att-savebar">
-      <div class="att-mini-note">Hadir dan Terlambat dihitung sebagai hadir pada rekap.</div>
+      <div class="att-mini-note">Hadir dan Terlambat dihitung hadir pada rekap. T berbobot 75% pada karakter.</div>
       <button class="btn att-save" id="saveAttendanceBtn" onclick="saveAttendanceDraft()">✓ Simpan Presensi</button>
     </div>`}
   </div>`);
@@ -725,131 +791,59 @@ function setCurrentWeek(){
 async function reloadAttendance(){
   const dates=weekDates();
   const {data,error}=await supabaseClient.from("habit_attendance")
-    .select("id,attendance_date,habit_program_id,student_id,status,notes,attendance_time,late_minutes,late_notes,recorded_by")
+    .select("id,attendance_date,habit_program_id,student_id,status,notes,recorded_by")
     .gte("attendance_date",dates[0]).lte("attendance_date",dates[4]);
   if(error)throw error;
   state.attendance=data||[];
 }
-async function chooseAttendance(date,pid,sid,currentStatus){
+async function chooseAttendance(date,pid,sid,status){
   if(date>todayISO()){toast("Tanggal mendatang dikunci.");return;}
   if(calendarStatus(date)!=="NORMAL"){toast("Tanggal LIBUR/DITIADAKAN tidak dapat diisi.");return;}
 
-  if(currentStatus==="TERLAMBAT"){
-    // Clicking T again allows editing its arrival details.
-    openLateDraft(date,pid,sid);
-    return;
-  }
-
-  const statuses=["HADIR","TERLAMBAT","SAKIT","IZIN","ALFA"];
-  const next=statuses[(statuses.indexOf(currentStatus)+1)%statuses.length];
-
-  if(next==="TERLAMBAT"){
-    openLateDraft(date,pid,sid);
-    return;
-  }
-
-  setDraft(date,pid,sid,next,{attendance_time:null,late_minutes:0,late_notes:null});
+  setDraft(date,pid,sid,status,{
+    attendance_time:null,
+    late_minutes:0,
+    late_notes:null
+  });
   render();
 }
-function openLateDraft(date,pid,sid){
-  const student=state.students.find(x=>x.id===sid);
-  const program=state.programs.find(x=>x.id===pid);
+
+function statusButton(date,pid,sid,status,current){
+  const labels={
+    HADIR:"H",
+    SAKIT:"S",
+    IZIN:"I",
+    ALFA:"A",
+    TERLAMBAT:"T"
+  };
+  const titles={
+    HADIR:"Hadir",
+    SAKIT:"Sakit",
+    IZIN:"Izin",
+    ALFA:"Alfa",
+    TERLAMBAT:"Terlambat"
+  };
+  return `<button class="att-choice ${statusClass(status)} ${current===status?"selected":""}"
+    title="${titles[status]}"
+    onclick="chooseAttendance('${date}','${pid}','${sid}','${status}')">${labels[status]}</button>`;
+}
+
+function attendanceCell(date,pid,sid){
+  const future=date>todayISO(), unavailable=calendarStatus(date)!=="NORMAL";
   const d=getDraft(date,pid,sid);
-  const defaultTime=program?.start_time||"07:00";
-  openModal("Catat Keterlambatan",`
-    <div style="margin-bottom:13px;padding:11px;background:#fff8e8;border-radius:10px;font-size:10px">
-      <b>${esc(student?.full_name)}</b><br>${esc(program?.name||"")} · ${fmtDate(date)}
-    </div>
-    <div class="form-grid">
-      <div class="field"><label>Jam Datang</label><input class="input" id="lateTime" type="time" value="${esc(d.attendance_time||defaultTime)}"></div>
-      <div class="field"><label>Mulai Kegiatan</label><input class="input" id="startTime" type="time" value="${esc(defaultTime)}"></div>
-      <div class="field full"><label>Catatan</label><textarea class="textarea" id="lateNotes" placeholder="Keterangan keterlambatan...">${esc(d.late_notes||"")}</textarea></div>
-    </div>`,
-    ()=>{
-      const lateTime=document.getElementById("lateTime")?.value;
-      const start=document.getElementById("startTime")?.value;
-      setDraft(date,pid,sid,"TERLAMBAT",{
-        attendance_time:lateTime||null,
-        late_minutes:minutesBetween(start,lateTime),
-        late_notes:document.getElementById("lateNotes")?.value||null
-      });
-      render();
-      toast("Status T disiapkan. Klik Simpan Presensi.");
-    },
-    "Pakai Status Terlambat"
-  );
-}
-async function saveAttendanceDraft(){
-  const btn=document.getElementById("saveAttendanceBtn");
-  if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
 
-  try{
-    const dates=weekDates();
-    const classId=state.attendanceClass;
-    if(!classId)throw new Error("Pilih kelas terlebih dahulu.");
-
-    const students=studentsForClass(classId);
-    const rows=[];
-
-    for(const date of dates){
-      if(date>todayISO()||calendarStatus(date)!=="NORMAL")continue;
-      const programs=programForDate(date);
-      // In the school's current model, each weekday has one pembiasaan.
-      // If multiple are configured, each remains a separate opportunity.
-      for(const p of programs){
-        for(const s of students){
-          const d=getDraft(date,p.id,s.id);
-          if(!d?.status)continue;
-          const existing=attFor(date,p.id,s.id);
-          rows.push({
-            ...(existing?.id?{id:existing.id}:{}),
-            attendance_date:date,
-            habit_program_id:p.id,
-            student_id:s.id,
-            status:d.status,
-            attendance_time:d.status==="TERLAMBAT"?(d.attendance_time||null):null,
-            late_minutes:d.status==="TERLAMBAT"?(d.late_minutes||0):0,
-            late_notes:d.status==="TERLAMBAT"?(d.late_notes||null):null,
-            recorded_by:state.user.id
-          });
-        }
-      }
-    }
-
-    if(!rows.length)throw new Error("Tidak ada presensi yang dapat disimpan.");
-
-    // Upsert needs the actual unique key in the table. If no unique
-    // constraint exists on the three business columns, update existing
-    // rows individually and insert only missing ones.
-    const updates=rows.filter(x=>x.id);
-    const inserts=rows.filter(x=>!x.id);
-
-    for(const row of updates){
-      const {id,...payload}=row;
-      const {error}=await supabaseClient.from("habit_attendance").update(payload).eq("id",id);
-      if(error)throw error;
-    }
-    if(inserts.length){
-      const {error}=await supabaseClient.from("habit_attendance").insert(inserts);
-      if(error)throw error;
-    }
-
-    state.attendanceDraft={};
-    await reloadAttendance();
-    render();
-    toast(`Presensi ${students.length} siswa berhasil disimpan.`);
-  }catch(e){
-    console.error(e);
-    toast(e.message||"Gagal menyimpan presensi.");
-    if(btn){btn.disabled=false;btn.textContent="✓ Simpan Presensi";}
+  if(unavailable){
+    const label=calendarStatus(date)==="LIBUR"?"☒ Libur":"⊘ Ditiadakan";
+    return `<div class="att-choice-wrap"><div class="att-status locked">${label}</div></div>`;
   }
-}
-function minutesBetween(start,end){
-  if(!start||!end)return 0;
-  const [h1,m1]=start.split(":").map(Number),[h2,m2]=end.split(":").map(Number);
-  let a=h1*60+m1,b=h2*60+m2;
-  if(b<a)b+=1440;
-  return Math.max(0,b-a);
+
+  if(future){
+    return `<div class="att-choice-wrap"><div class="att-status locked">🔒 Belum tersedia</div></div>`;
+  }
+
+  return `<div class="att-choice-wrap">
+    ${["HADIR","SAKIT","IZIN","ALFA","TERLAMBAT"].map(st=>statusButton(date,pid,sid,st,d.status)).join("")}
+  </div>`;
 }
 
 /* ---------------- Late ---------------- */
@@ -860,7 +854,8 @@ views.terlambat=()=>{
     .filter(a=>!f.classId||a.student?.class_id===f.classId)
     .filter(a=>!f.studentId||a.student?.id===f.studentId)
     .filter(a=>!f.programId||a.program?.id===f.programId);
-  return layout("Terlambat","Daftar keterlambatan yang berasal dari presensi pembiasaan.",
+
+  return layout("Terlambat","Daftar siswa yang berstatus terlambat dari presensi pembiasaan.",
   `<div class="card">
     <div class="filters">
       <div class="field"><label>Dari</label><input class="input" type="date" value="${f.from}" onchange="state.lateFilters.from=this.value;render()"></div>
@@ -868,17 +863,32 @@ views.terlambat=()=>{
       <div class="field"><label>Kelas</label><select class="select" onchange="state.lateFilters.classId=this.value;render()">${classOptions(f.classId)}</select></div>
       <div class="field"><label>Siswa</label><select class="select" onchange="state.lateFilters.studentId=this.value;render()">${studentOptions(f.studentId)}</select></div>
       <div class="field"><label>Pembiasaan</label><select class="select" onchange="state.lateFilters.programId=this.value;render()">${programOptions(f.programId)}</select></div>
-      <div style="margin-left:auto;display:flex;align-items:end;gap:7px"><button class="btn btn-light" onclick="exportLateExcel()">⇩ Excel</button><button class="btn btn-primary" onclick="printReport('late')">🖨 PDF / Cetak</button></div>
+      <div style="margin-left:auto;display:flex;align-items:end;gap:7px">
+        <button class="btn btn-light" onclick="exportLateExcel()">⇩ Excel</button>
+        <button class="btn btn-primary" onclick="printReport('late')">🖨 PDF / Cetak</button>
+      </div>
     </div>
+
     <div class="grid four" style="margin-bottom:15px">
-      ${stat("Keterlambatan",rows.length,"Sesuai filter","◷","orange")}
-      ${stat("Rata-rata Menit",rows.length?Math.round(rows.reduce((s,x)=>s+(x.late_minutes||0),0)/rows.length):0,"Menit","⏱","blue")}
+      ${stat("Keterlambatan",rows.length,"Sesuai filter","T","orange")}
       ${stat("Siswa",new Set(rows.map(x=>x.student?.id)).size,"Berbeda","♙","purple")}
       ${stat("Program",new Set(rows.map(x=>x.program?.id)).size,"Pembiasaan","✓","green")}
+      ${stat("Bobot Karakter","75%","Kontribusi status T","◈","blue")}
     </div>
-    <div class="table-wrap"><table class="table"><thead><tr><th>Tanggal</th><th>Jam</th><th>NIS</th><th>Nama</th><th>Kelas</th><th>Pembiasaan</th><th>Menit</th><th>Catatan</th></tr></thead><tbody>
-      ${rows.map(x=>`<tr><td>${fmtDate(x.attendance_date)}</td><td>${esc(x.attendance_time||"-")}</td><td>${esc(x.student?.nis||"-")}</td><td><strong>${esc(x.student?.full_name||"-")}</strong></td><td>${esc(state.classes.find(c=>c.id===x.student?.class_id)?.name||"-")}</td><td>${esc(x.program?.name||"-")}</td><td><span class="badge badge-orange">${x.late_minutes||0} menit</span></td><td>${esc(x.late_notes||x.notes||"-")}</td></tr>`).join("")||`<tr><td colspan="8" class="empty">Belum ada data keterlambatan.</td></tr>`}
-    </tbody></table></div>
+
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Tanggal</th><th>NIS</th><th>Nama</th><th>Kelas</th><th>Pembiasaan</th><th>Status</th></tr></thead>
+      <tbody>
+        ${rows.map(x=>`<tr>
+          <td>${fmtDate(x.attendance_date)}</td>
+          <td>${esc(x.student?.nis||"-")}</td>
+          <td><strong>${esc(x.student?.full_name||"-")}</strong></td>
+          <td>${esc(state.classes.find(c=>c.id===x.student?.class_id)?.name||"-")}</td>
+          <td>${esc(x.program?.name||"-")}</td>
+          <td>${statusBadge("TERLAMBAT")}</td>
+        </tr>`).join("")||`<tr><td colspan="6" class="empty">Belum ada data keterlambatan.</td></tr>`}
+      </tbody>
+    </table></div>
   </div>`);
 };
 
@@ -886,7 +896,9 @@ function getLateRows(){
   const f=state.lateFilters;
   return state.attendance.filter(a=>a.status==="TERLAMBAT"&&a.attendance_date>=f.from&&a.attendance_date<=f.to)
     .map(a=>({...a,student:state.students.find(s=>s.id===a.student_id),program:state.programs.find(p=>p.id===a.habit_program_id)}))
-    .filter(a=>!f.classId||a.student?.class_id===f.classId).filter(a=>!f.studentId||a.student?.id===f.studentId).filter(a=>!f.programId||a.program?.id===f.programId);
+    .filter(a=>!f.classId||a.student?.class_id===f.classId)
+    .filter(a=>!f.studentId||a.student?.id===f.studentId)
+    .filter(a=>!f.programId||a.program?.id===f.programId);
 }
 function exportXlsx(rows,sheetName,fileName){
   if(!window.XLSX){toast("Library Excel belum termuat.");return;}
@@ -895,9 +907,12 @@ function exportXlsx(rows,sheetName,fileName){
 }
 function exportLateExcel(){
   const rows=getLateRows().map(x=>({
-    Tanggal:x.attendance_date,Jam:x.attendance_time||"",NIS:x.student?.nis||"",
-    Nama:x.student?.full_name||"",Kelas:state.classes.find(c=>c.id===x.student?.class_id)?.name||"",
-    Pembiasaan:x.program?.name||"",Menit:x.late_minutes||0,Catatan:x.late_notes||x.notes||""
+    Tanggal:x.attendance_date,
+    NIS:x.student?.nis||"",
+    Nama:x.student?.full_name||"",
+    Kelas:state.classes.find(c=>c.id===x.student?.class_id)?.name||"",
+    Pembiasaan:x.program?.name||"",
+    Status:"TERLAMBAT"
   }));
   exportXlsx(rows,"Terlambat","rekap-terlambat.xlsx");
 }
@@ -1455,26 +1470,66 @@ function openCalendar(date=todayISO()){
 function studentReport(studentId,from,to){
   const s=state.students.find(x=>x.id===studentId);
   if(!s)return null;
+
   const ops=effectiveOpportunities(from,to);
   const byDim={};
-  state.dimensions.forEach(d=>byDim[d.id]={dim:d,total:0,present:0,evidence:0});
+  state.dimensions.forEach(d=>byDim[d.id]={
+    dim:d,
+    total:0,
+    weighted:0,
+    evidence:0,
+    H:0,
+    T:0,
+    S:0,
+    I:0,
+    A:0
+  });
+
   const records=[];
+
   ops.forEach(o=>{
     const a=attFor(o.date,o.program.id,s.id);
     const links=state.programDpl.filter(x=>x.habit_program_id===o.program.id);
+
     links.forEach(link=>{
-      const d=byDim[link.dpl_id];if(!d)return;
+      const d=byDim[link.dpl_id];
+      if(!d)return;
+
       d.total++;
-      if(a?.status==="HADIR"||a?.status==="TERLAMBAT")d.present++;
-      if(a)d.evidence++;
+
+      if(a?.status){
+        d.evidence++;
+        d[a.status==="HADIR"?"H":a.status==="TERLAMBAT"?"T":a.status==="SAKIT"?"S":a.status==="IZIN"?"I":"A"]++;
+        d.weighted += CHARACTER_ATTENDANCE_WEIGHT[a.status] ?? 0;
+      }
     });
+
     if(a)records.push({date:o.date,program:o.program,status:a.status});
   });
+
   Object.values(byDim).forEach(x=>{
-    x.score=x.evidence?Math.max(1,Math.min(4,Math.round((x.present/x.total)*4*10)/10)):null;
+    if(!x.evidence){
+      x.score=null;
+      x.level="Belum cukup data";
+      return;
+    }
+
+    // Score 1–4. Terlambat mendapat bobot 75% dari Hadir.
+    const raw=(x.weighted/x.total)*4;
+    x.score=Math.max(1,Math.min(4,Math.round(raw*10)/10));
+
+    x.level=x.score<1.75
+      ?"Perlu Bimbingan"
+      :x.score<2.5
+        ?"Cukup"
+        :x.score<3.5
+          ?"Baik"
+          :"Sangat Baik";
   });
+
   return {student:s,byDim,records,ops};
 }
+
 views.rapor=()=>{
   const selected=state.selectedRaporStudent||state.students[0]?.id||"";
   const r=studentReport(selected,state.raporFrom,state.raporTo);
@@ -1487,11 +1542,11 @@ views.rapor=()=>{
   </div></div>
   ${!r?`<div class="card empty">Belum ada siswa.</div>`:`<div class="grid two">
     <div class="card"><div class="card-head"><div><h3>${esc(r.student.full_name)}</h3><p>${esc(state.classes.find(c=>c.id===r.student.class_id)?.name||"-")} · ${fmtDate(state.raporFrom)} – ${fmtDate(state.raporTo)}</p></div></div>
-      <div class="dim-list">${Object.values(r.byDim).map(x=>`<div class="dim"><div><strong>${esc(x.dim.name)}</strong><small>${x.evidence?`${x.present}/${x.total} kesempatan hadir`:"Belum cukup data"}</small></div><div class="progress"><span style="width:${x.score?x.score/4*100:0}%"></span></div><div class="dim-score">${x.score??"—"}</div></div>`).join("")}</div>
+      <div class="dim-list">${Object.values(r.byDim).map(x=>`<div class="dim"><div><strong>${esc(x.dim.name)}</strong><small>${x.evidence?`${x.H} H · ${x.T} T · ${x.S} S · ${x.I} I · ${x.A} A · bobot ${x.weighted.toFixed(2)}/${x.total}`:"Belum cukup data"}</small></div><div class="progress"><span style="width:${x.score?x.score/4*100:0}%"></span></div><div class="dim-score">${x.score??"—"}</div></div>`).join("")}</div>
     </div>
-    <div class="card"><div class="card-head"><div><h3>Rapor Kegiatan</h3><p>Nilai 1–4 hanya jika tersedia bukti yang cukup.</p></div></div>
+    <div class="card"><div class="card-head"><div><h3>Rapor Kegiatan</h3><p>Hadir = 100% · Terlambat = 75% · Sakit/Izin/Alfa = 0% untuk bukti karakter.</p></div></div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Kegiatan</th><th>Tanggal</th><th>Status</th></tr></thead><tbody>${r.records.map(x=>`<tr><td>${esc(x.program.name)}</td><td>${fmtDate(x.date)}</td><td>${statusBadge(x.status)}</td></tr>`).join("")||`<tr><td colspan="3" class="empty">Belum ada bukti presensi.</td></tr>`}</tbody></table></div>
-      <div style="margin-top:13px;padding:10px;border-radius:10px;background:#f8f8fc;font-size:9px;color:#72778a">Skala: <b>1</b> Perlu Bimbingan · <b>2</b> Cukup · <b>3</b> Baik · <b>4</b> Sangat Baik.</div>
+      <div style="margin-top:13px;padding:10px;border-radius:10px;background:#f8f8fc;font-size:9px;color:#72778a">Skala: <b>1</b> Perlu Bimbingan · <b>2</b> Cukup · <b>3</b> Baik · <b>4</b> Sangat Baik. Status <b>Terlambat</b> tetap dihitung hadir pada rekap presensi, tetapi hanya berbobot <b>75%</b> pada karakter.</div>
     </div>
   </div>`}`);
 };
@@ -1532,7 +1587,7 @@ function printReport(type){
   if(type==="late"){
     title="Rekap Keterlambatan";
     content=`<h2>REKAP KETERLAMBATAN</h2><p>Periode ${fmtDate(state.lateFilters.from)} s.d. ${fmtDate(state.lateFilters.to)}</p>
-    <table>${getLateRows().map(x=>`<tr><td>${fmtDate(x.attendance_date)}</td><td>${esc(x.student?.nis)}</td><td>${esc(x.student?.full_name)}</td><td>${esc(state.classes.find(c=>c.id===x.student?.class_id)?.name||"")}</td><td>${esc(x.program?.name)}</td><td>${x.late_minutes||0}</td><td>${esc(x.late_notes||"")}</td></tr>`).join("")}</table>`;
+    <table>${getLateRows().map(x=>`<tr><td>${fmtDate(x.attendance_date)}</td><td>${esc(x.student?.nis)}</td><td>${esc(x.student?.full_name)}</td><td>${esc(state.classes.find(c=>c.id===x.student?.class_id)?.name||"")}</td><td>${esc(x.program?.name)}</td><td>TERLAMBAT</td></tr>`).join("")}</table>`;
   } else if(type==="recapAttendance"){
     title="Rekap Presensi";
     content=`<h2>REKAP PRESENSI</h2><p>Periode ${fmtDate(state.recapFilters.from)} s.d. ${fmtDate(state.recapFilters.to)}</p><table>${recapRows().map(r=>`<tr><td>${esc(r.student.nis)}</td><td>${esc(r.student.full_name)}</td><td>${r.H}</td><td>${r.T}</td><td>${r.S}</td><td>${r.I}</td><td>${r.A}</td><td>${r.opportunities}</td><td>${r.attendancePct}%</td></tr>`).join("")}</table>`;
@@ -1543,7 +1598,7 @@ function printReport(type){
     const r=studentReport(state.selectedRaporStudent||state.students[0]?.id,state.raporFrom,state.raporTo);
     title="Rapor Karakter";
     content=`<h2>RAPOR KARAKTER PESERTA DIDIK</h2><p><b>${esc(r?.student?.full_name||"-")}</b> · ${esc(state.classes.find(c=>c.id===r?.student?.class_id)?.name||"-")}</p>
-    <table><tr><th>Dimensi Profil Lulusan</th><th>Nilai</th><th>Deskripsi</th></tr>${r?Object.values(r.byDim).map(x=>`<tr><td>${esc(x.dim.name)}</td><td>${x.score??"—"}</td><td>${x.evidence?`Berdasarkan ${x.evidence} bukti kegiatan.`:"Belum cukup data"}</td></tr>`).join(""):""}</table>
+    <table><tr><th>Dimensi Profil Lulusan</th><th>Nilai</th><th>Deskripsi</th></tr>${r?Object.values(r.byDim).map(x=>`<tr><td>${esc(x.dim.name)}</td><td>${x.score??"—"}</td><td>${x.evidence?`${x.level}. Berdasarkan ${x.evidence} bukti; H ${x.H}, T ${x.T}, S ${x.S}, I ${x.I}, A ${x.A}.`:"Belum cukup data"}</td></tr>`).join(""):""}</table>
     <div class="sign"><div>Kesiswaan<br><br><br><b>${esc(state.profile?.full_name||"")}</b></div><div>Kepala Sekolah<br><br><br><b>${esc(school.principal_name||"")}</b><br>NIP. ${esc(school.principal_nip||"")}</div></div>`;
   }
   const win=window.open("","_blank");
