@@ -812,6 +812,75 @@ async function chooseAttendance(date,pid,sid,status,clickedButton){
   }
 }
 
+async function saveAttendanceDraft(){
+  const btn=document.getElementById("saveAttendanceBtn");
+  if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
+
+  try{
+    const classId=state.attendanceClass;
+    if(!classId)throw new Error("Pilih kelas terlebih dahulu.");
+
+    const students=studentsForClass(classId);
+    const rows=[];
+
+    for(const date of weekDates()){
+      // Future dates and LIBUR/DITIADAKAN are not attendance opportunities.
+      if(date>todayISO() || calendarStatus(date)!=="NORMAL") continue;
+
+      const programs=programForDate(date);
+      for(const program of programs){
+        for(const student of students){
+          const draft=getDraft(date,program.id,student.id);
+          if(!draft?.status) continue;
+
+          const existing=attFor(date,program.id,student.id);
+          rows.push({
+            ...(existing?.id ? {id:existing.id} : {}),
+            attendance_date:date,
+            habit_program_id:program.id,
+            student_id:student.id,
+            status:draft.status,
+            notes:null,
+            recorded_by:state.user.id
+          });
+        }
+      }
+    }
+
+    if(!rows.length)throw new Error("Tidak ada presensi yang dapat disimpan.");
+
+    // Update existing records by ID; insert only records that do not exist.
+    // This avoids requiring a new UNIQUE constraint in the existing schema.
+    const updates=rows.filter(row=>row.id);
+    const inserts=rows.filter(row=>!row.id).map(({id,...row})=>row);
+
+    for(const row of updates){
+      const {id,...payload}=row;
+      const {error}=await supabaseClient
+        .from("habit_attendance")
+        .update(payload)
+        .eq("id",id);
+      if(error)throw error;
+    }
+
+    if(inserts.length){
+      const {error}=await supabaseClient
+        .from("habit_attendance")
+        .insert(inserts);
+      if(error)throw error;
+    }
+
+    state.attendanceDraft={};
+    await reloadAttendance();
+    render();
+    toast(`Presensi ${students.length} siswa berhasil disimpan.`);
+  }catch(e){
+    console.error(e);
+    toast(e?.message || "Gagal menyimpan presensi.");
+    if(btn){btn.disabled=false;btn.textContent="✓ Simpan Presensi";}
+  }
+}
+
 function statusButton(date,pid,sid,status,current){
   const labels={
     HADIR:"H",
