@@ -1,0 +1,88 @@
+[
+  {
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "nis": "123603",
+    "full_name": "ADITYA PUTRA",
+    "class_id": "c7d9b85e-0106-4e6d-a53a-9bfafae41e78",
+    "class_name": "X MP 2",
+    "auth_user_id": null
+  }
+]
+
+[
+  {
+    "id": "ac8afaa2-fb2e-43d2-a092-cef8a7f83327",
+    "attendance_date": "2026-10-02",
+    "habit_program_id": "07ddb4a6-4e07-463d-ad85-3a2bf39ff8f0",
+    "program_name": "Pengajian",
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "status": "HADIR",
+    "notes": null,
+    "recorded_by": "381b4ec8-408c-4684-af56-3f8e9ef4de72",
+    "created_at": "2026-10-04 14:20:32.999325+00",
+    "updated_at": "2026-10-04 14:20:32.999325+00"
+  },
+  {
+    "id": "8cff08f8-90b2-47db-ad0b-d64baf6e3139",
+    "attendance_date": "2026-10-01",
+    "habit_program_id": "5f607445-8a7b-4c19-b9e9-034ed4d4dbbb",
+    "program_name": "Olahraga",
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "status": "ALFA",
+    "notes": null,
+    "recorded_by": "381b4ec8-408c-4684-af56-3f8e9ef4de72",
+    "created_at": "2026-10-04 14:20:32.999325+00",
+    "updated_at": "2026-10-04 14:20:32.999325+00"
+  },
+  {
+    "id": "6c4d9152-6d9d-41c8-9ccf-61491cef49d7",
+    "attendance_date": "2026-09-30",
+    "habit_program_id": "611d2662-31d5-4173-b5ea-d355bb8966a8",
+    "program_name": "Literasi",
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "status": "HADIR",
+    "notes": null,
+    "recorded_by": "381b4ec8-408c-4684-af56-3f8e9ef4de72",
+    "created_at": "2026-10-04 14:20:32.999325+00",
+    "updated_at": "2026-10-04 14:20:32.999325+00"
+  },
+  {
+    "id": "38d7d7ce-2857-48f9-b082-cdb344524626",
+    "attendance_date": "2026-09-29",
+    "habit_program_id": "8c1bf966-03ee-4d6f-9763-14bada35e3ad",
+    "program_name": "Dhuha",
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "status": "HADIR",
+    "notes": null,
+    "recorded_by": "381b4ec8-408c-4684-af56-3f8e9ef4de72",
+    "created_at": "2026-10-04 14:20:32.999325+00",
+    "updated_at": "2026-10-04 14:20:32.999325+00"
+  },
+  {
+    "id": "7373983c-bb7c-4232-a257-21b7e30bf62c",
+    "attendance_date": "2026-09-28",
+    "habit_program_id": "275226ac-bb22-4046-ac05-26743b3d0696",
+    "program_name": "Upacara",
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "status": "HADIR",
+    "notes": null,
+    "recorded_by": "381b4ec8-408c-4684-af56-3f8e9ef4de72",
+    "created_at": "2026-10-04 14:20:32.999325+00",
+    "updated_at": "2026-10-04 14:20:32.999325+00"
+  }
+]
+
+[
+  {
+    "student_id": "23f08d2b-8e2f-46ed-91a2-37e4fa136030",
+    "full_name": "ADITYA PUTRA",
+    "can_access": false,
+    "is_staff": false,
+    "is_kesiswaan": false
+  }
+]

@@ -61,6 +61,11 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sidebar{overscroll-behavior:contain}.nav{overscroll-behavior:contain}
 </style>
 
+<style>
+/* Pengguna + attendance polish */
+.att-save:disabled{opacity:.5;cursor:not-allowed}.att-current{display:flex;align-items:center;justify-content:space-between;gap:5px}.att-current strong{font-size:9px}.att-choice-wrap{display:flex;gap:3px;margin-top:5px}.att-choice{border:1px solid #e7eaf0;background:#fff;color:#73798a;width:25px;height:24px;border-radius:7px;font-size:8px;font-weight:900;padding:0}.att-choice:hover{transform:translateY(-1px);border-color:#b8c1cb}.att-choice.selected{box-shadow:0 0 0 2px #07889422;border-color:#078894}.att-choice.h.selected{background:#e9fbf2;color:#16865a}.att-choice.t.selected{background:#fff5df;color:#b77908}.att-choice.s.selected{background:#eaf2ff;color:#3974ce}.att-choice.i.selected{background:#eeecff;color:#5d4cd0}.att-choice.a.selected{background:#ffedf0;color:#d84654}.att-saved-badge,.att-edit-badge,.att-default-badge,.att-empty-badge{display:inline-flex;align-items:center;padding:3px 5px;border-radius:999px;font-size:7px;font-weight:800;white-space:nowrap}.att-saved-badge{background:#e9fbf2;color:#16865a}.att-edit-badge{background:#fff5df;color:#a86e06}.att-default-badge{background:#eef5f6;color:#60757a}.att-empty-badge{background:#f1f2f6;color:#777b8c}
+</style>
+
 
 <style>
 /* Import Excel: keep modal itself usable while preview gets its own scroll */
@@ -336,6 +341,7 @@ const MENU = [
     ["kalender","□","Kalender Sekolah"]
   ]},
   {group:"Pengaturan", items:[
+    ["pengguna","♙","Manajemen Pengguna"],
     ["pengaturan","⚙","Pengaturan Sekolah"]
   ]}
 ];
@@ -366,6 +372,7 @@ const state = {
   violationTypes:[],
   followUps:[],
   calendar:[],
+  profiles:[],
   loading:false,
   modalSave:null,
   weekStart: mondayOf(new Date()),
@@ -528,10 +535,21 @@ function renderLoading(){
   if(p)p.innerHTML=`<div class="card empty">Memuat data dari Supabase...</div>`;
 }
 
+async function loadProfiles(){
+  if(state.profile?.role!=="superadmin") return;
+  const {data,error}=await supabaseClient
+    .from("profiles")
+    .select("id,full_name,email,role,is_active,created_at,updated_at")
+    .order("full_name");
+  if(error)throw error;
+  state.profiles=data||[];
+}
+
 function navRender(){
   const nav=document.getElementById("nav");
   const role=state.profile?.role||"";
   const allowed=(tab)=>{
+    if(tab==="pengguna") return role==="superadmin";
     if(role==="superadmin"||role==="kesiswaan")return true;
     if(role==="guru")return ["dashboard","presensi","terlambat","rekapPresensi","siswa","pelanggaran","tindaklanjut","rekapPelanggaran","rapor","kalender"].includes(tab);
     if(role==="siswa")return ["dashboard","rapor","rekapPresensi"].includes(tab);
@@ -583,7 +601,7 @@ async function boot(){
   document.getElementById("appRoot").style.display="";
   applySidebarPreference();
   document.getElementById("loginRoot").innerHTML="";
-  try{await loadAll();updateIdentity();render();}
+  try{await loadAll();await loadProfiles();updateIdentity();render();}
   catch(e){console.error(e);toast("Gagal memuat data: "+e.message);render();}
 }
 function showLogin(error=""){
@@ -632,12 +650,12 @@ async function login(){
     document.getElementById("loginRoot").innerHTML="";
     document.getElementById("appRoot").style.display="";
     applySidebarPreference();
-    await loadAll(); updateIdentity(); render();
+    await loadAll(); await loadProfiles(); updateIdentity(); render();
   }catch(e){showLogin(e.message||"Login gagal");}
 }
 async function logout(){
   await supabaseClient.auth.signOut();
-  state.user=null;state.profile=null;state.school=null;
+  state.user=null;state.profile=null;state.school=null;state.profiles=[];state.attendanceDraft={};
   showLogin();
 }
 
@@ -965,93 +983,51 @@ async function saveAttendanceDraft(){
     if(!classId)throw new Error("Pilih kelas terlebih dahulu.");
     if(!state.user?.id)throw new Error("Sesi pengguna tidak ditemukan. Silakan login kembali.");
 
-    const changed=Object.entries(state.attendanceDraft).filter(([,d])=>d?.dirty&&d?.status);
+    const changed=Object.entries(state.attendanceDraft)
+      .filter(([,d])=>d?.dirty&&d?.status)
+      .map(([key,draft])=>{
+        const [date,pid,sid]=key.split("__");
+        return {key,date,pid,sid,draft};
+      })
+      .filter(x=>x.date<=todayISO() && calendarStatus(x.date)==="NORMAL");
+
     if(!changed.length){
       toast("Tidak ada perubahan presensi.");
+      state.attendanceDraft={};
       render();
       return;
     }
 
-    let saved=0;
-    let edited=0;
-    let inserted=0;
+    /*
+      Struktur database yang benar adalah UNIQUE
+      (attendance_date, habit_program_id, student_id).
+      Karena itu penyimpanan menggunakan UPSERT dengan onConflict
+      yang PERSIS sama dengan constraint tersebut.
 
-    // Simpan SATU PER SATU berdasarkan kombinasi unik yang sebenarnya.
-    // Ini sengaja tidak memakai INSERT massal agar edit tidak pernah menjadi duplikat.
-    for(const [key,draft] of changed){
-      const [date,pid,sid]=key.split("__");
-      if(date>todayISO() || calendarStatus(date)!=="NORMAL")continue;
+      Dampaknya:
+      - record baru -> INSERT
+      - record lama -> UPDATE
+      - tidak membuat baris duplikat
+      - tidak perlu loop INSERT satu per satu
+    */
+    const rows=changed.map(x=>({
+      attendance_date:x.date,
+      habit_program_id:x.pid,
+      student_id:x.sid,
+      status:x.draft.status,
+      notes:x.draft.late_notes||null,
+      recorded_by:state.user.id
+    }));
 
-      // Baca record terbaru langsung dari Supabase, bukan hanya state browser.
-      const {data:existingRows,error:findError}=await supabaseClient
-        .from("habit_attendance")
-        .select("id,attendance_date,habit_program_id,student_id,status,notes")
-        .eq("attendance_date",date)
-        .eq("habit_program_id",pid)
-        .eq("student_id",sid)
-        .limit(1);
-      if(findError)throw findError;
+    const {error}=await supabaseClient
+      .from("habit_attendance")
+      .upsert(rows,{onConflict:"attendance_date,habit_program_id,student_id"});
+    if(error)throw error;
 
-      const existing=existingRows?.[0];
-      const payload={
-        attendance_date:date,
-        habit_program_id:pid,
-        student_id:sid,
-        status:draft.status,
-        notes:draft.late_notes||null,
-        recorded_by:state.user.id
-      };
-
-      if(existing?.id){
-        const {error}=await supabaseClient
-          .from("habit_attendance")
-          .update({
-            status:payload.status,
-            notes:payload.notes,
-            recorded_by:payload.recorded_by
-          })
-          .eq("id",existing.id);
-        if(error)throw error;
-        edited++;
-      }else{
-        const {error}=await supabaseClient
-          .from("habit_attendance")
-          .insert(payload);
-        if(error){
-          // Bila record baru saja dibuat oleh proses lain, ambil record itu
-          // lalu UPDATE. Dengan demikian tidak pernah menghasilkan duplikat.
-          const duplicate=String(error.message||"").toLowerCase().includes("duplicate key") ||
-            String(error.message||"").toLowerCase().includes("unique constraint");
-          if(!duplicate)throw error;
-
-          const {data:raced,error:raceError}=await supabaseClient
-            .from("habit_attendance")
-            .select("id")
-            .eq("attendance_date",date)
-            .eq("habit_program_id",pid)
-            .eq("student_id",sid)
-            .limit(1);
-          if(raceError)throw raceError;
-          if(!raced?.[0]?.id)throw error;
-
-          const {error:updateError}=await supabaseClient
-            .from("habit_attendance")
-            .update({status:payload.status,notes:payload.notes,recorded_by:payload.recorded_by})
-            .eq("id",raced[0].id);
-          if(updateError)throw updateError;
-          edited++;
-          continue;
-        }
-        inserted++;
-      }
-      saved++;
-    }
-
-    // Setelah penyimpanan, kosongkan draft lalu baca ulang dari database.
     state.attendanceDraft={};
     await reloadAttendance();
     render();
-    toast(`Presensi tersimpan. ${inserted} baru, ${edited} diperbarui.`);
+    toast(`Presensi tersimpan. ${rows.length} data diproses tanpa duplikasi.`);
   }catch(e){
     console.error("Gagal menyimpan presensi:",e);
     toast(e?.message || "Gagal menyimpan presensi.");
@@ -1194,6 +1170,184 @@ views.rekapPresensi=()=>{
 function exportRecapExcel(){
   const rows=recapRows().map(r=>({NIS:r.student.nis||"",Nama:r.student.full_name,Kelas:state.classes.find(c=>c.id===r.student.class_id)?.name||"",H:r.H,T:r.T,S:r.S,I:r.I,A:r.A,Kesempatan:r.opportunities,"% Kehadiran":r.attendancePct,"% Ketidakhadiran":r.absencePct}));
   exportXlsx(rows,"Rekap Presensi","rekap-presensi.xlsx");
+}
+
+/* ---------------- Manajemen Pengguna ---------------- */
+function roleLabel(role){
+  return ({superadmin:"Superadmin",kesiswaan:"Kesiswaan",guru:"Guru / Wali Kelas",siswa:"Siswa"}[role]||role||"-");
+}
+function roleBadge(role){
+  const cls={superadmin:"badge-purple",kesiswaan:"badge-blue",guru:"badge-green",siswa:"badge-gray"}[role]||"badge-gray";
+  return `<span class="badge ${cls}">${esc(roleLabel(role))}</span>`;
+}
+
+views.pengguna=()=>{
+  if(state.profile?.role!=="superadmin"){
+    return layout("Manajemen Pengguna","Akses ini hanya tersedia untuk Superadmin.",`<div class="card empty">Anda tidak memiliki izin mengelola akun pengguna.</div>`);
+  }
+  const rows=state.profiles||[];
+  const counts={
+    superadmin:rows.filter(x=>x.role==="superadmin").length,
+    kesiswaan:rows.filter(x=>x.role==="kesiswaan").length,
+    guru:rows.filter(x=>x.role==="guru").length,
+    siswa:rows.filter(x=>x.role==="siswa").length,
+    active:rows.filter(x=>x.is_active).length
+  };
+  return layout("Manajemen Pengguna","Kelola profile dan role pengguna yang terhubung dengan Supabase Auth.",
+  `<div class="grid four" style="margin-bottom:14px">
+    ${stat("Total Pengguna",rows.length,"Profile terdaftar","♙","purple")}
+    ${stat("Superadmin",counts.superadmin,"Akses penuh","◆","blue")}
+    ${stat("Kesiswaan + Guru",counts.kesiswaan+counts.guru,"Pengelola data","✓","green")}
+    ${stat("Aktif",counts.active,"Akun aktif","●","orange")}
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <div><h3>Daftar Pengguna</h3><p>Role dibaca dari public.profiles. Auth tetap dikelola oleh Supabase Auth.</p></div>
+      <button class="btn btn-primary" onclick="openUserForm()">＋ Tambah Pengguna</button>
+    </div>
+    <div class="filters">
+      <input class="input" id="userSearch" placeholder="Cari nama / email..." oninput="renderUserTable()" style="min-width:240px">
+      <select class="select" id="userRoleFilter" onchange="renderUserTable()">
+        <option value="">Semua Role</option>
+        <option value="superadmin">Superadmin</option>
+        <option value="kesiswaan">Kesiswaan</option>
+        <option value="guru">Guru / Wali Kelas</option>
+        <option value="siswa">Siswa</option>
+      </select>
+      <select class="select" id="userStatusFilter" onchange="renderUserTable()">
+        <option value="">Semua Status</option>
+        <option value="active">Aktif</option>
+        <option value="inactive">Nonaktif</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>Pengguna</th><th>Email</th><th>Role</th><th>Status</th><th>Dibuat</th><th>Auth/Profile ID</th><th></th></tr></thead><tbody id="userRows">${userRows()}</tbody></table></div>
+    <div style="margin-top:14px;padding:12px 14px;border-radius:12px;background:#f5fafb;border:1px solid #dceff1;font-size:9px;color:#66717b;line-height:1.6">
+      <b>Penting:</b> perubahan role/status dilakukan pada <b>public.profiles</b>. Pembuatan akun baru menggunakan Supabase Auth melalui <b>signUp</b>; jika project mengaktifkan <i>Confirm Email</i>, pengguna harus mengonfirmasi email terlebih dahulu. Tidak ada service-role key yang disimpan di HTML ini.
+    </div>
+  </div>`);
+};
+
+function userRows(){
+  const q=(document.getElementById("userSearch")?.value||"").trim().toLowerCase();
+  const rf=document.getElementById("userRoleFilter")?.value||"";
+  const sf=document.getElementById("userStatusFilter")?.value||"";
+  return (state.profiles||[])
+    .filter(p=>!q||String(p.full_name||"").toLowerCase().includes(q)||String(p.email||"").toLowerCase().includes(q))
+    .filter(p=>!rf||p.role===rf)
+    .filter(p=>!sf||(sf==="active"?p.is_active:!p.is_active))
+    .map(p=>`<tr>
+      <td><div class="student"><div class="avatar">${initials(p.full_name||p.email)}</div><div><strong>${esc(p.full_name||"-")}</strong><span class="muted" style="display:block;font-size:8px;margin-top:2px">${p.id===state.user?.id?"Akun Anda":""}</span></div></div></td>
+      <td>${esc(p.email||"-")}</td>
+      <td>${roleBadge(p.role)}</td>
+      <td>${statusBadge(p.is_active?"Aktif":"Nonaktif")}</td>
+      <td>${p.created_at?new Date(p.created_at).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"-"}</td>
+      <td><span class="muted" style="font-size:8px">${esc(p.id)}</span></td>
+      <td><button class="btn btn-light btn-sm" onclick="openUserForm('${p.id}')">Edit</button></td>
+    </tr>`).join("")||`<tr><td colspan="7" class="empty">Tidak ada pengguna yang sesuai filter.</td></tr>`;
+}
+function renderUserTable(){
+  const x=document.getElementById("userRows");
+  if(x)x.innerHTML=userRows();
+}
+
+function openUserForm(id=""){
+  if(state.profile?.role!=="superadmin")return toast("Hanya Superadmin yang dapat mengelola pengguna.");
+  const p=state.profiles.find(x=>x.id===id);
+  const isEdit=!!p;
+  openModal(isEdit?"Edit Pengguna":"Tambah Pengguna",
+  `<div style="padding:10px 12px;background:#f6f8ff;border:1px solid #e5e9ff;border-radius:11px;font-size:9px;line-height:1.55;color:#5e6576;margin-bottom:14px">
+    ${isEdit?"Edit hanya mengubah profile dan role. Email Auth tidak diubah dari halaman ini.":"Akun baru dibuat melalui Supabase Auth. Setelah Auth berhasil dibuat, profile dengan ID yang sama akan dibuat sebagai role yang dipilih."}
+  </div>
+  <div class="grid two">
+    <div class="field"><label>Nama Lengkap</label><input class="input" id="userFullName" value="${esc(p?.full_name||"")}" placeholder="Nama pengguna"></div>
+    <div class="field"><label>Email</label><input class="input" id="userEmail" type="email" value="${esc(p?.email||"")}" ${isEdit?"readonly":""} placeholder="nama@sekolah.sch.id"></div>
+  </div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="field"><label>Role</label><select class="select" id="userRole">
+      ${["kesiswaan","guru","siswa","superadmin"].map(r=>`<option value="${r}" ${(p?.role||"kesiswaan")===r?"selected":""}>${roleLabel(r)}</option>`).join("")}
+    </select></div>
+    <div class="field"><label>Status</label><select class="select" id="userActive"><option value="true" ${p?.is_active!==false?"selected":""}>Aktif</option><option value="false" ${p?.is_active===false?"selected":""}>Nonaktif</option></select></div>
+  </div>
+  ${!isEdit?`<div class="field" style="margin-top:12px"><label>Password awal</label><input class="input" id="userPassword" type="password" minlength="6" autocomplete="new-password" placeholder="Minimal 6 karakter"></div>
+  <div style="margin-top:10px;font-size:9px;color:#7a8494">Password dibuat untuk akun Auth baru. Jangan menggunakan password akun pribadi.</div>`:""}`,
+  ()=>saveUserProfile(id),
+  isEdit?"Simpan Perubahan":"Buat Pengguna");
+}
+
+async function saveUserProfile(id=""){
+  if(state.profile?.role!=="superadmin")throw new Error("Hanya Superadmin yang dapat mengelola pengguna.");
+  const fullName=document.getElementById("userFullName")?.value.trim();
+  const email=document.getElementById("userEmail")?.value.trim().toLowerCase();
+  const role=document.getElementById("userRole")?.value;
+  const isActive=document.getElementById("userActive")?.value!=="false";
+  if(!fullName)throw new Error("Nama lengkap wajib diisi.");
+  if(!email)throw new Error("Email wajib diisi.");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Format email tidak valid.");
+  if(!["superadmin","kesiswaan","guru","siswa"].includes(role))throw new Error("Role tidak valid.");
+
+  if(id){
+    // Jangan biarkan Superadmin tanpa Superadmin aktif sama sekali.
+    if(id===state.user?.id && role!=="superadmin"){
+      const activeAdmins=(state.profiles||[]).filter(x=>x.role==="superadmin"&&x.is_active&&x.id!==id).length;
+      if(!activeAdmins)throw new Error("Akun Superadmin terakhir tidak boleh diturunkan rolenya.");
+    }
+    if(id===state.user?.id && !isActive){
+      const activeAdmins=(state.profiles||[]).filter(x=>x.role==="superadmin"&&x.is_active&&x.id!==id).length;
+      if(!activeAdmins)throw new Error("Akun Superadmin yang sedang digunakan tidak boleh dinonaktifkan jika tidak ada Superadmin aktif lain.");
+    }
+
+    const {error}=await supabaseClient.from("profiles").update({
+      full_name:fullName,
+      role,
+      is_active:isActive,
+      updated_at:new Date().toISOString()
+    }).eq("id",id);
+    if(error)throw error;
+    await loadProfiles();
+    render();
+    toast("Profile pengguna diperbarui.");
+    return;
+  }
+
+  const password=document.getElementById("userPassword")?.value||"";
+  if(password.length<6)throw new Error("Password awal minimal 6 karakter.");
+
+  /*
+    Browser TIDAK boleh memakai service_role key.
+    Kita menggunakan client Auth terpisah dengan persistSession:false
+    agar proses signUp tidak mengganti sesi Superadmin utama.
+  */
+  const authClient=window.supabase.createClient(
+    SUPABASE_CONFIG.url,
+    SUPABASE_CONFIG.key,
+    {auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}}
+  );
+
+  const {data,error}=await authClient.auth.signUp({email,password});
+  if(error)throw error;
+  const authUser=data?.user;
+  if(!authUser?.id)throw new Error("Supabase Auth tidak mengembalikan user. Periksa pengaturan Sign Up pada project.");
+
+  const {error:profileError}=await supabaseClient.from("profiles").insert({
+    id:authUser.id,
+    full_name:fullName,
+    email,
+    role,
+    is_active:isActive
+  });
+
+  if(profileError){
+    /*
+      User Auth sudah dibuat. Browser dengan publishable key tidak memiliki
+      hak aman untuk menghapus Auth user. Karena itu jangan menyamarkan error;
+      tampilkan ID agar admin dapat menindaklanjuti di Authentication > Users.
+    */
+    throw new Error(`Akun Auth berhasil dibuat, tetapi profile gagal dibuat (${profileError.message}). User ID: ${authUser.id}. Periksa RLS profiles.`);
+  }
+
+  await loadProfiles();
+  render();
+  toast(`Pengguna ${fullName} berhasil dibuat sebagai ${role}.`);
 }
 
 /* ---------------- Students + Excel import ---------------- */
