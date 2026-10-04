@@ -245,6 +245,202 @@ html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sideb
   .att-choice{width:27px;height:30px}
 }
 </style>
+
+<style id="simurid-attendance-compact-ui">
+/* =========================================================
+   COMPACT ATTENDANCE UI — CSS ONLY
+   Tidak mengubah logic / query / state / save.
+   ========================================================= */
+@media (min-width:781px){
+  .attendance-page-card{border-radius:14px}
+  .att-toolbar{padding:9px 12px 7px}
+  .att-toolbar-main{gap:7px}
+  .att-toolbar .field{min-width:125px}
+  .att-toolbar .field label{font-size:8px;margin-bottom:3px}
+  .att-help{font-size:8px;margin-top:5px;gap:4px}
+
+  /* Hilangkan area quick-fill yang redundant karena default sudah HADIR */
+  .att-bulkbar{display:none}
+
+  /* Paksa 5 hari masuk dalam satu layar pada desktop */
+  .att-table-wrap{overflow-x:hidden;max-height:calc(100vh - 230px);min-height:360px}
+  .att-table{width:100%;min-width:0;table-layout:fixed}
+  .att-table thead th{padding:6px 4px;font-size:9px}
+  .att-table thead th.no-col{width:36px;min-width:36px}
+  .att-table thead th.student-col{left:36px;width:220px;min-width:220px}
+  .att-table thead th.day-col{width:auto;min-width:0}
+  .att-table tbody td{padding:3px 3px;font-size:9px}
+  .att-table tbody td.no-col{left:0;width:36px}
+  .att-table tbody td.student-col{left:36px;width:220px;min-width:220px}
+
+  .att-day-name{font-size:10px;line-height:1.1}
+  .att-day-program-main{
+    margin:3px 2px 0;
+    padding:3px 7px;
+    border-radius:7px;
+    font-size:8px;
+    max-width:calc(100% - 4px);
+    line-height:1.1;
+  }
+  .att-day-date{
+    display:inline-block;
+    margin:2px 0 0;
+    font-size:7.5px;
+    line-height:1;
+  }
+  .att-day-program-more{font-size:7px;margin-top:1px}
+  .att-day-bulk{display:none}
+
+  .att-student{gap:6px;min-width:0}
+  .att-student .avatar{width:30px;height:30px;min-width:30px;font-size:9px;border-radius:9px}
+  .att-student-name{font-size:9px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .att-student-nis{font-size:7.5px;margin-top:1px}
+
+  .att-cell-editable{gap:2px;padding:3px 1px}
+  .att-current{gap:3px;min-height:16px;font-size:8px;line-height:1}
+  .att-current strong{font-size:8px}
+  .att-saved-badge,.att-edit-badge,.att-empty-badge,.att-default-badge{
+    padding:1px 4px;
+    font-size:6px;
+    line-height:1.05;
+  }
+  .att-choice-wrap{min-width:0;width:100%;gap:2px}
+  .att-choice{
+    width:25px;
+    height:24px;
+    border-radius:6px;
+    font-size:8px;
+    flex:0 0 25px;
+  }
+
+  .att-legend{justify-content:center;gap:8px;padding:6px 10px}
+  .att-legend-item{font-size:8px;gap:3px}
+  .att-dot{width:18px;height:18px;border-radius:6px;font-size:7px}
+  .att-savebar{padding:7px 12px;gap:7px}
+  .att-save{min-width:170px;padding:9px 14px;border-radius:10px;font-size:9px}
+  .att-mini-note{font-size:8px}
+}
+
+/* Layar lebih sempit: tetap compact tetapi izinkan horizontal scroll agar tombol tidak rusak */
+@media (min-width:781px) and (max-width:1150px){
+  .att-table-wrap{overflow-x:auto}
+  .att-table{min-width:960px}
+  .att-table thead th.student-col,
+  .att-table tbody td.student-col{width:195px;min-width:195px}
+  .att-choice{width:23px;height:23px;flex-basis:23px}
+}
+
+@media(max-width:780px){
+  .att-bulkbar{display:none}
+  .att-day-bulk{display:none}
+  .att-toolbar{padding:8px 10px 6px}
+  .att-help{font-size:8px;margin-top:5px}
+  .att-table thead th{padding:5px 3px}
+  .att-day-program-main{margin:3px auto 0;padding:3px 6px;font-size:8px}
+  .att-day-date{font-size:7.5px}
+  .att-cell-editable{gap:2px;padding:3px 1px}
+  .att-current{min-height:15px;font-size:8px;gap:2px}
+  .att-choice-wrap{min-width:0;gap:2px}
+  .att-choice{width:25px;height:24px;flex:0 0 25px;border-radius:6px;font-size:8px}
+  .att-saved-badge,.att-edit-badge,.att-empty-badge,.att-default-badge{padding:1px 4px;font-size:6px}
+  .att-legend{gap:6px;padding:6px 8px}
+  .att-legend-item{font-size:7.5px}
+  .att-savebar{padding:7px 8px}
+}
+</style>
+
+
+<style id="simurid-attendance-final-ui">
+/* =========================================================
+   FINAL PRESENSI UI POLISH — UI ONLY
+   Tidak mengubah logic, query, state, save, atau reload.
+   ========================================================= */
+
+/* Nama siswa sedikit lebih besar dan lebih mudah dipindai */
+@media (min-width:781px){
+  .att-student-name{
+    font-size:11px !important;
+    line-height:1.2 !important;
+    letter-spacing:-.05px;
+  }
+  .att-student-nis{
+    font-size:8px !important;
+  }
+
+  /* Zebra rows: beda sangat tipis supaya tetap clean */
+  .att-table tbody tr:nth-child(odd) td{
+    background:#ffffff;
+  }
+  .att-table tbody tr:nth-child(even) td{
+    background:#f8fafc;
+  }
+  .att-table tbody tr:nth-child(odd) td.no-col,
+  .att-table tbody tr:nth-child(odd) td.student-col{
+    background:#ffffff;
+  }
+  .att-table tbody tr:nth-child(even) td.no-col,
+  .att-table tbody tr:nth-child(even) td.student-col{
+    background:#f8fafc;
+  }
+
+  /* Header tabel benar-benar tetap terlihat saat daftar siswa discroll */
+  .att-table-wrap{
+    position:relative;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  .att-table thead th{
+    position:sticky;
+    top:0;
+    z-index:20;
+    background:#f8fafc;
+    box-shadow:0 1px 0 #e5eaf0, 0 3px 8px rgba(31,54,80,.045);
+  }
+  .att-table thead th.no-col,
+  .att-table thead th.student-col{
+    z-index:30;
+  }
+  .att-table tbody td.no-col,
+  .att-table tbody td.student-col{
+    z-index:10;
+  }
+  .att-table tbody tr:hover td{
+    background:#f3f8fb;
+  }
+  .att-table tbody tr:hover td.no-col,
+  .att-table tbody tr:hover td.student-col{
+    background:#f3f8fb;
+  }
+}
+
+/* Jangan pernah tampilkan strip pembiasaan terpisah jika ada dari versi sebelumnya.
+   Informasi hari + tanggal + pembiasaan cukup SATU kali di header tabel. */
+.att-day-strip,
+.att-program-strip,
+.attendance-day-strip,
+.attendance-program-strip,
+.att-week-program-strip{
+  display:none !important;
+}
+
+/* Header tabel tetap menjadi satu-satunya tempat informasi hari/program */
+.att-table thead .att-day-program-main{
+  display:block;
+}
+
+@media(max-width:780px){
+  .att-student-name{
+    font-size:10px !important;
+    line-height:1.15 !important;
+  }
+  .att-table tbody tr:nth-child(odd) td{background:#fff}
+  .att-table tbody tr:nth-child(even) td{background:#f8fafc}
+  .att-table tbody tr:nth-child(odd) td.no-col,
+  .att-table tbody tr:nth-child(odd) td.student-col{background:#fff}
+  .att-table tbody tr:nth-child(even) td.no-col,
+  .att-table tbody tr:nth-child(even) td.student-col{background:#f8fafc}
+}
+</style>
 </head>
 
 <body>
