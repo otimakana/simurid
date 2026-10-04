@@ -204,6 +204,14 @@ html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sideb
 .att-choice.i:hover{border-color:#f1c400;color:#a37c00}
 .att-choice.a:hover{border-color:#df3d4d;color:#d84654}
 .att-choice.t:hover{border-color:#f2a900;color:#b77600}
+
+.att-cell-editable{display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 4px}
+.att-current{width:100%;display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;min-height:22px;font-size:9px}
+.att-current.h{color:#16885b}.att-current.s{color:#1684a9}.att-current.i{color:#a37c00}.att-current.a{color:#d84654}.att-current.t{color:#b77600}.att-current.empty-status{color:#8c96a4}
+.att-saved-badge,.att-edit-badge,.att-empty-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 6px;font-size:7px;font-weight:800;line-height:1.2;white-space:nowrap}
+.att-saved-badge{background:#ecfaf3;color:#16885b;border:1px solid #bdebd2}
+.att-edit-badge{background:#fff5df;color:#a86b00;border:1px solid #f4d28c}
+.att-empty-badge{background:#f5f7fa;color:#8993a2;border:1px solid #e1e5ea}
 .att-choice-wrap .att-status{
   width:100%;
   min-width:165px;
@@ -674,40 +682,77 @@ function calendarStatus(date){
 function studentsForClass(classId){
   return state.students.filter(s=>!classId||s.class_id===classId);
 }
-function attFor(date,programId,studentId){
-  return state.attendance.find(x=>x.attendance_date===date&&x.habit_program_id===programId&&x.student_id===studentId);
+function attendanceKey(date,programId,studentId){
+  return `${date}__${programId}__${studentId}`;
 }
-function draftKey(date,pid,sid){return `${date}__${pid}__${sid}`;}
+function attFor(date,programId,studentId){
+  return state.attendance.find(x=>
+    x.attendance_date===date &&
+    x.habit_program_id===programId &&
+    x.student_id===studentId
+  );
+}
+function draftKey(date,pid,sid){return attendanceKey(date,pid,sid);}
 function getDraft(date,pid,sid){
   const k=draftKey(date,pid,sid);
   if(Object.prototype.hasOwnProperty.call(state.attendanceDraft,k)){
     return state.attendanceDraft[k];
   }
   const existing=attFor(date,pid,sid);
-  if(existing)return {status:existing.status};
-  return {status:"HADIR"};
+  if(existing)return {status:existing.status,dirty:false,originalStatus:existing.status};
+  return {status:null,dirty:false,originalStatus:null};
 }
 function setDraft(date,pid,sid,status,extra={}){
-  state.attendanceDraft[draftKey(date,pid,sid)]={status,...extra};
+  const existing=attFor(date,pid,sid);
+  state.attendanceDraft[draftKey(date,pid,sid)]={
+    status,
+    originalStatus:existing?.status||null,
+    dirty:status!== (existing?.status||null),
+    ...extra
+  };
 }
 function statusClass(status){
-  return status==="HADIR"?"h":status==="TERLAMBAT"?"t":status==="SAKIT"?"s":status==="IZIN"?"i":"a";
+  return status==="HADIR"?"h":status==="TERLAMBAT"?"t":status==="SAKIT"?"s":status==="IZIN"?"i":status==="ALFA"?"a":"empty-status";
 }
 function statusLabel(status){
-  return {HADIR:"H - Hadir",TERLAMBAT:"T - Terlambat",SAKIT:"S - Sakit",IZIN:"I - Izin",ALFA:"A - Alfa"}[status]||"—";
+  return {HADIR:"H - Hadir",TERLAMBAT:"T - Terlambat",SAKIT:"S - Sakit",IZIN:"I - Izin",ALFA:"A - Alfa"}[status]||"— Belum diisi";
 }
+function attendanceStateBadge(d){
+  if(d?.dirty) return `<span class="att-edit-badge">● Belum disimpan</span>`;
+  if(d?.status) return `<span class="att-saved-badge">✓ Tersimpan</span>`;
+  return `<span class="att-empty-badge">Belum diisi</span>`;
+}
+
+function statusButton(date,pid,sid,status,current){
+  const labels={HADIR:"H",SAKIT:"S",IZIN:"I",ALFA:"A",TERLAMBAT:"T"};
+  const titles={HADIR:"Hadir",SAKIT:"Sakit",IZIN:"Izin",ALFA:"Alfa",TERLAMBAT:"Terlambat"};
+  return `<button type="button" class="att-choice ${statusClass(status)} ${current===status?"selected":""}"
+    title="${titles[status]}"
+    onclick="chooseAttendance('${date}','${pid}','${sid}','${status}',this)">${labels[status]}</button>`;
+}
+
 function attendanceCell(date,pid,sid){
-  const future=date>todayISO(), unavailable=calendarStatus(date)!=="NORMAL";
+  const future=date>todayISO();
+  const unavailable=calendarStatus(date)!=="NORMAL";
   const d=getDraft(date,pid,sid);
+
   if(unavailable){
     const label=calendarStatus(date)==="LIBUR"?"☒ Libur":"⊘ Ditiadakan";
-    return `<div class="att-cell"><button class="att-status locked" disabled>${label}</button></div>`;
+    return `<div class="att-cell"><div class="att-status locked">${label}</div></div>`;
   }
   if(future){
-    return `<div class="att-cell"><button class="att-status locked" disabled>🔒 Belum tersedia</button></div>`;
+    return `<div class="att-cell"><div class="att-status locked">🔒 Belum tersedia</div></div>`;
   }
-  const c=statusClass(d.status);
-  return `<div class="att-cell"><button class="att-status ${c}" onclick="chooseAttendance('${date}','${pid}','${sid}','${d.status}')">${statusLabel(d.status)}</button></div>`;
+
+  return `<div class="att-cell att-cell-editable">
+    <div class="att-current ${d.status?statusClass(d.status):"empty-status"}">
+      <strong>${statusLabel(d.status)}</strong>
+      ${attendanceStateBadge(d)}
+    </div>
+    <div class="att-choice-wrap">
+      ${["HADIR","SAKIT","IZIN","ALFA","TERLAMBAT"].map(st=>statusButton(date,pid,sid,st,d.status)).join("")}
+    </div>
+  </div>`;
 }
 
 views.presensi=()=>{
@@ -715,7 +760,9 @@ views.presensi=()=>{
   const cls=state.attendanceClass;
   const students=studentsForClass(cls);
   const hasClass=!!cls;
-  return layout("Presensi Pembiasaan","Satu kelas ditampilkan sekaligus untuk Senin–Jumat. Pembiasaan sekaligus menjadi presensi kehadiran siswa.",
+  const dirtyCount=Object.values(state.attendanceDraft).filter(x=>x?.dirty).length;
+
+  return layout("Presensi Pembiasaan","Input dan edit presensi langsung. Status yang sudah tersimpan dapat diubah kapan saja selama tanggal presensi tersedia.",
   `<div class="card attendance-page-card">
     <div class="att-toolbar">
       <div class="att-toolbar-main">
@@ -723,7 +770,7 @@ views.presensi=()=>{
         <div class="field"><label>Kelas</label><select class="select" onchange="state.attendanceClass=this.value;state.attendanceDraft={};render()">${classOptions(cls,"Pilih Kelas")}</select></div>
         <div class="field"><label></label><button class="btn btn-light" onclick="setCurrentWeek()">Minggu ini</button></div>
       </div>
-      <div class="att-help">ⓘ Satu kelas ditampilkan sekaligus untuk <b>Senin–Jumat</b>. Setiap kolom hari tetap menampilkan kegiatan pembiasaan. Klik langsung <b>H</b>, <b>S</b>, <b>I</b>, <b>A</b>, atau <b>T</b> untuk menetapkan status. Tidak perlu memasukkan jam keterlambatan.</div>
+      <div class="att-help">ⓘ Klik <b>H/S/I/A/T</b> untuk input atau <b>mengedit</b> status. Status yang berasal dari database ditandai <b>✓ Tersimpan</b>. Perubahan ditandai <b>● Belum disimpan</b>.</div>
     </div>
 
     ${!hasClass?`<div class="empty" style="padding:55px">Pilih kelas terlebih dahulu untuk menampilkan presensi.</div>`:
@@ -746,25 +793,22 @@ views.presensi=()=>{
           </tr>
         </thead>
         <tbody>
-          ${students.map((s,idx)=>{
-            return `<tr>
-              <td class="no-col">${idx+1}</td>
-              <td class="student-col">
-                <div class="att-student">
-                  <div class="avatar">${initials(s.full_name)}</div>
-                  <div class="att-student-info">
-                    <div class="att-student-name">${esc(s.full_name)}</div>
-                    <div class="att-student-nis">${esc(s.nis||"-")}</div>
-                  </div>
+          ${students.map((s,idx)=>`<tr>
+            <td class="no-col">${idx+1}</td>
+            <td class="student-col">
+              <div class="att-student">
+                <div class="avatar">${initials(s.full_name)}</div>
+                <div class="att-student-info">
+                  <div class="att-student-name">${esc(s.full_name)}</div>
+                  <div class="att-student-nis">${esc(s.nis||"-")}</div>
                 </div>
-              </td>
-              ${dates.map(date=>{
-                const progs=programForDate(date);
-                const p=progs[0];
-                return p?`<td>${attendanceCell(date,p.id,s.id)}</td>`:`<td><div class="att-cell"><button class="att-status locked" disabled>— Tidak ada</button></div></td>`;
-              }).join("")}
-            </tr>`;
-          }).join("")||`<tr><td colspan="7" class="empty">Belum ada siswa pada kelas ini.</td></tr>`}
+              </div>
+            </td>
+            ${dates.map(date=>{
+              const p=programForDate(date)[0];
+              return p?`<td>${attendanceCell(date,p.id,s.id)}</td>`:`<td><div class="att-cell"><div class="att-status locked">— Tidak ada</div></div></td>`;
+            }).join("")}
+          </tr>`).join("")||`<tr><td colspan="7" class="empty">Belum ada siswa pada kelas ini.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -774,11 +818,12 @@ views.presensi=()=>{
       <div class="att-legend-item"><span class="att-dot i">I</span> Izin</div>
       <div class="att-legend-item"><span class="att-dot a">A</span> Alfa</div>
       <div class="att-legend-item"><span class="att-dot t">T</span> Terlambat</div>
-      <div class="att-legend-item" style="color:var(--primary);font-weight:800">▣ Senin–Jumat</div>
+      <div class="att-legend-item"><span class="att-saved-badge">✓ Tersimpan</span></div>
+      <div class="att-legend-item"><span class="att-edit-badge">● Belum disimpan</span></div>
     </div>
     <div class="att-savebar">
-      <div class="att-mini-note">Hadir dan Terlambat dihitung hadir pada rekap. T berbobot 75% pada karakter.</div>
-      <button class="btn att-save" id="saveAttendanceBtn" onclick="saveAttendanceDraft()">✓ Simpan Presensi</button>
+      <div class="att-mini-note">${dirtyCount?`<b>${dirtyCount}</b> perubahan belum disimpan.`:"Semua perubahan sudah tersimpan."}</div>
+      <button class="btn att-save" id="saveAttendanceBtn" onclick="saveAttendanceDraft()" ${dirtyCount?"":"disabled"}>✓ ${dirtyCount?"Simpan Perubahan":"Tidak Ada Perubahan"}</button>
     </div>`}
   </div>`);
 };
@@ -789,9 +834,10 @@ async function changeWeek(v){
   await reloadAttendance();
   render();
 }
-function setCurrentWeek(){
+async function setCurrentWeek(){
   state.weekStart=mondayOf(new Date());
   state.attendanceDraft={};
+  await reloadAttendance();
   render();
 }
 async function reloadAttendance(){
@@ -802,20 +848,41 @@ async function reloadAttendance(){
   if(error)throw error;
   state.attendance=data||[];
 }
+
 async function chooseAttendance(date,pid,sid,status,clickedButton){
   if(date>todayISO()){toast("Tanggal mendatang dikunci.");return;}
   if(calendarStatus(date)!=="NORMAL"){toast("Tanggal LIBUR/DITIADAKAN tidak dapat diisi.");return;}
 
-  // Jangan render ulang seluruh halaman ketika memilih H/S/I/A/T.
-  // Render ulang sebelumnya membuat posisi scroll kembali ke atas,
-  // sehingga ketika operator memilih siswa paling bawah terasa "meloncat".
-  setDraft(date,pid,sid,status,{attendance_time:null,late_minutes:0,late_notes:null});
+  const existing=attFor(date,pid,sid);
+  const key=draftKey(date,pid,sid);
+  const current=state.attendanceDraft[key]?.status ?? existing?.status ?? null;
 
-  const wrap=clickedButton?.closest?.(".att-choice-wrap");
+  // Klik status yang sama dua kali tidak menghapus data; status tetap valid.
+  // Klik status berbeda berarti EDIT terhadap record yang sudah tersimpan.
+  state.attendanceDraft[key]={
+    status,
+    originalStatus:existing?.status||null,
+    dirty:status!==(existing?.status||null),
+    attendance_time:null,
+    late_minutes:status==="TERLAMBAT"?0:null,
+    late_notes:null
+  };
+
+  const wrap=clickedButton?.closest?.(".att-cell");
   if(wrap){
     wrap.querySelectorAll(".att-choice").forEach(btn=>btn.classList.remove("selected"));
     clickedButton.classList.add("selected");
+    const currentBox=wrap.querySelector(".att-current");
+    if(currentBox){
+      currentBox.className=`att-current ${statusClass(status)}`;
+      currentBox.innerHTML=`<strong>${statusLabel(status)}</strong><span class="att-edit-badge">● Belum disimpan</span>`;
+    }
   }
+
+  const saveBtn=document.getElementById("saveAttendanceBtn");
+  if(saveBtn){saveBtn.disabled=false;saveBtn.textContent="✓ Simpan Perubahan";}
+  const mini=document.querySelector(".att-mini-note");
+  if(mini){mini.innerHTML="<b>Ada perubahan belum disimpan.</b> Klik Simpan Perubahan.";}
 }
 
 async function saveAttendanceDraft(){
@@ -827,123 +894,98 @@ async function saveAttendanceDraft(){
     if(!classId)throw new Error("Pilih kelas terlebih dahulu.");
     if(!state.user?.id)throw new Error("Sesi pengguna tidak ditemukan. Silakan login kembali.");
 
-    /*
-      PENTING:
-      habit_attendance memiliki UNIQUE constraint pada:
-      attendance_date + habit_program_id + student_id.
-
-      Jangan lagi membagi data menjadi UPDATE lalu INSERT berdasarkan
-      state.attendance di browser. State bisa saja belum sinkron dengan
-      database dan menyebabkan INSERT terhadap record yang sebenarnya
-      sudah ada.
-
-      Kita refresh data minggu ini terlebih dahulu, lalu gunakan UPSERT
-      dengan conflict target yang sama persis dengan UNIQUE constraint.
-      Hasilnya:
-        - record belum ada  -> INSERT
-        - record sudah ada  -> UPDATE
-      dan penyimpanan dapat diulang tanpa duplicate-key error.
-    */
-    await reloadAttendance();
-
-    const students=studentsForClass(classId);
-    const rows=[];
-    const rowMap=new Map();
-
-    for(const date of weekDates()){
-      // Tanggal mendatang dan tanggal LIBUR/DITIADAKAN bukan kesempatan presensi.
-      if(date>todayISO() || calendarStatus(date)!=="NORMAL") continue;
-
-      const programs=programForDate(date);
-      for(const program of programs){
-        for(const student of students){
-          const draft=getDraft(date,program.id,student.id);
-          if(!draft?.status) continue;
-
-          const row={
-            attendance_date:date,
-            habit_program_id:program.id,
-            student_id:student.id,
-            status:draft.status,
-            notes:draft.notes ?? null,
-            recorded_by:state.user.id
-          };
-
-          // Lindungi upsert dari duplicate rows yang mungkin terbentuk
-          // di sisi browser: satu kombinasi hanya boleh satu baris.
-          const key=`${date}__${program.id}__${student.id}`;
-          rowMap.set(key,row);
-        }
-      }
+    const changed=Object.entries(state.attendanceDraft).filter(([,d])=>d?.dirty&&d?.status);
+    if(!changed.length){
+      toast("Tidak ada perubahan presensi.");
+      render();
+      return;
     }
 
-    rows.push(...rowMap.values());
-    if(!rows.length)throw new Error("Tidak ada presensi yang dapat disimpan.");
+    let saved=0;
+    let edited=0;
+    let inserted=0;
 
-    const {error}=await supabaseClient
-      .from("habit_attendance")
-      .upsert(rows,{
-        onConflict:"attendance_date,habit_program_id,student_id",
-        ignoreDuplicates:false
-      });
+    // Simpan SATU PER SATU berdasarkan kombinasi unik yang sebenarnya.
+    // Ini sengaja tidak memakai INSERT massal agar edit tidak pernah menjadi duplikat.
+    for(const [key,draft] of changed){
+      const [date,pid,sid]=key.split("__");
+      if(date>todayISO() || calendarStatus(date)!=="NORMAL")continue;
 
-    if(error)throw error;
+      // Baca record terbaru langsung dari Supabase, bukan hanya state browser.
+      const {data:existingRows,error:findError}=await supabaseClient
+        .from("habit_attendance")
+        .select("id,attendance_date,habit_program_id,student_id,status,notes")
+        .eq("attendance_date",date)
+        .eq("habit_program_id",pid)
+        .eq("student_id",sid)
+        .limit(1);
+      if(findError)throw findError;
 
-    // Ambil kembali data dari Supabase agar tampilan selalu mencerminkan
-    // database setelah UPSERT berhasil.
+      const existing=existingRows?.[0];
+      const payload={
+        attendance_date:date,
+        habit_program_id:pid,
+        student_id:sid,
+        status:draft.status,
+        notes:draft.late_notes||null,
+        recorded_by:state.user.id
+      };
+
+      if(existing?.id){
+        const {error}=await supabaseClient
+          .from("habit_attendance")
+          .update({
+            status:payload.status,
+            notes:payload.notes,
+            recorded_by:payload.recorded_by
+          })
+          .eq("id",existing.id);
+        if(error)throw error;
+        edited++;
+      }else{
+        const {error}=await supabaseClient
+          .from("habit_attendance")
+          .insert(payload);
+        if(error){
+          // Bila record baru saja dibuat oleh proses lain, ambil record itu
+          // lalu UPDATE. Dengan demikian tidak pernah menghasilkan duplikat.
+          const duplicate=String(error.message||"").toLowerCase().includes("duplicate key") ||
+            String(error.message||"").toLowerCase().includes("unique constraint");
+          if(!duplicate)throw error;
+
+          const {data:raced,error:raceError}=await supabaseClient
+            .from("habit_attendance")
+            .select("id")
+            .eq("attendance_date",date)
+            .eq("habit_program_id",pid)
+            .eq("student_id",sid)
+            .limit(1);
+          if(raceError)throw raceError;
+          if(!raced?.[0]?.id)throw error;
+
+          const {error:updateError}=await supabaseClient
+            .from("habit_attendance")
+            .update({status:payload.status,notes:payload.notes,recorded_by:payload.recorded_by})
+            .eq("id",raced[0].id);
+          if(updateError)throw updateError;
+          edited++;
+          continue;
+        }
+        inserted++;
+      }
+      saved++;
+    }
+
+    // Setelah penyimpanan, kosongkan draft lalu baca ulang dari database.
     state.attendanceDraft={};
     await reloadAttendance();
     render();
-    toast(`Presensi ${students.length} siswa berhasil disimpan.`);
+    toast(`Presensi tersimpan. ${inserted} baru, ${edited} diperbarui.`);
   }catch(e){
     console.error("Gagal menyimpan presensi:",e);
-    const message=String(e?.message||"");
-    if(message.toLowerCase().includes("duplicate key") || message.toLowerCase().includes("unique constraint")){
-      toast("Ada data presensi yang sudah tersimpan. Sistem mencoba menyinkronkan ulang; silakan klik Simpan sekali lagi.");
-      try{await reloadAttendance();render();}catch(syncError){console.error("Gagal sinkronisasi:",syncError);}
-    }else{
-      toast(message || "Gagal menyimpan presensi.");
-    }
-    if(btn){btn.disabled=false;btn.textContent="✓ Simpan Presensi";}
+    toast(e?.message || "Gagal menyimpan presensi.");
+    if(btn){btn.disabled=false;btn.textContent="✓ Simpan Perubahan";}
   }
-}
-
-function statusButton(date,pid,sid,status,current){
-  const labels={
-    HADIR:"H",
-    SAKIT:"S",
-    IZIN:"I",
-    ALFA:"A",
-    TERLAMBAT:"T"
-  };
-  const titles={
-    HADIR:"Hadir",
-    SAKIT:"Sakit",
-    IZIN:"Izin",
-    ALFA:"Alfa",
-    TERLAMBAT:"Terlambat"
-  };
-  return `<button class="att-choice ${statusClass(status)} ${current===status?"selected":""}"
-    title="${titles[status]}"
-    onclick="chooseAttendance('${date}','${pid}','${sid}','${status}',this)">${labels[status]}</button>`;
-}
-
-function attendanceCell(date,pid,sid){
-  const future=date>todayISO(), unavailable=calendarStatus(date)!=="NORMAL";
-  const d=getDraft(date,pid,sid);
-
-  if(unavailable){
-    const label=calendarStatus(date)==="LIBUR"?"☒ Libur":"⊘ Ditiadakan";
-    return `<div class="att-choice-wrap"><div class="att-status locked">${label}</div></div>`;
-  }
-
-  if(future){
-    return `<div class="att-choice-wrap"><div class="att-status locked">🔒 Belum tersedia</div></div>`;
-  }
-
-  return `<div class="att-choice-wrap">
-    ${["HADIR","SAKIT","IZIN","ALFA","TERLAMBAT"].map(st=>statusButton(date,pid,sid,st,d.status)).join("")}
-  </div>`;
 }
 
 /* ---------------- Late ---------------- */
