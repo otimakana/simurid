@@ -119,6 +119,12 @@ html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sideb
 .att-legend-item{font-size:10px;color:#6e7887;display:flex;align-items:center;gap:5px}
 .att-dot{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:9px;font-weight:900}
 .att-dot.h{background:#4d73f6;color:#fff}.att-dot.t{background:#f2a900;color:#fff}.att-dot.s{background:#43b9dc;color:#fff}.att-dot.i{background:#f1c400;color:#fff}.att-dot.a{background:#df3d4d;color:#fff}
+.att-bulkbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px;background:#f8fbff;border-bottom:1px solid var(--border)}
+.att-bulk-title{font-size:10px;font-weight:800;color:#27446b;margin-right:auto}
+.att-bulk-btn{border:1px solid #bcd7ff;background:#fff;color:#2161b4;border-radius:10px;padding:7px 10px;font-size:9px;font-weight:800;cursor:pointer;transition:.15s}
+.att-bulk-btn:hover{background:#edf6ff;transform:translateY(-1px)}
+.att-day-bulk{display:inline-flex;margin-top:5px;border:1px solid #bcd7ff;background:#fff;color:#2161b4;border-radius:8px;padding:4px 7px;font-size:8px;font-weight:800;cursor:pointer}
+.att-day-bulk:hover{background:#edf6ff}
 .att-savebar{position:sticky;bottom:0;z-index:15;display:flex;justify-content:flex-end;gap:9px;padding:11px 16px;background:rgba(255,255,255,.94);backdrop-filter:blur(10px);border-top:1px solid var(--border)}
 .att-save{min-width:190px;justify-content:center;border-radius:14px;padding:12px 18px;background:#42bb82;color:#fff;box-shadow:0 10px 20px #42bb8230;font-size:11px}
 .att-save:disabled{opacity:.55;cursor:wait}
@@ -211,6 +217,7 @@ html,body{overflow-x:hidden}body{min-height:100vh}.main{overflow-x:hidden}.sideb
 .att-saved-badge,.att-edit-badge,.att-empty-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 6px;font-size:7px;font-weight:800;line-height:1.2;white-space:nowrap}
 .att-saved-badge{background:#ecfaf3;color:#16885b;border:1px solid #bdebd2}
 .att-edit-badge{background:#fff5df;color:#a86b00;border:1px solid #f4d28c}
+.att-default-badge{background:#eef5ff;color:#2866b1;border:1px solid #c7dcfb}
 .att-empty-badge{background:#f5f7fa;color:#8993a2;border:1px solid #e1e5ea}
 .att-choice-wrap .att-status{
   width:100%;
@@ -700,7 +707,9 @@ function getDraft(date,pid,sid){
   }
   const existing=attFor(date,pid,sid);
   if(existing)return {status:existing.status,dirty:false,originalStatus:existing.status};
-  return {status:null,dirty:false,originalStatus:null};
+  // Belum ada record: secara operasional presensi default = HADIR.
+  // Record baru belum ditulis sampai operator menekan Simpan.
+  return {status:"HADIR",dirty:false,originalStatus:null,isDefaultPresent:true};
 }
 function setDraft(date,pid,sid,status,extra={}){
   const existing=attFor(date,pid,sid);
@@ -718,6 +727,7 @@ function statusLabel(status){
   return {HADIR:"H - Hadir",TERLAMBAT:"T - Terlambat",SAKIT:"S - Sakit",IZIN:"I - Izin",ALFA:"A - Alfa"}[status]||"— Belum diisi";
 }
 function attendanceStateBadge(d){
+  if(d?.isDefaultPresent) return `<span class="att-default-badge">H Default</span>`;
   if(d?.dirty) return `<span class="att-edit-badge">● Belum disimpan</span>`;
   if(d?.status) return `<span class="att-saved-badge">✓ Tersimpan</span>`;
   return `<span class="att-empty-badge">Belum diisi</span>`;
@@ -770,8 +780,13 @@ views.presensi=()=>{
         <div class="field"><label>Kelas</label><select class="select" onchange="state.attendanceClass=this.value;state.attendanceDraft={};render()">${classOptions(cls,"Pilih Kelas")}</select></div>
         <div class="field"><label></label><button class="btn btn-light" onclick="setCurrentWeek()">Minggu ini</button></div>
       </div>
-      <div class="att-help">ⓘ Klik <b>H/S/I/A/T</b> untuk input atau <b>mengedit</b> status. Status yang berasal dari database ditandai <b>✓ Tersimpan</b>. Perubahan ditandai <b>● Belum disimpan</b>.</div>
+      <div class="att-help">ⓘ Presensi dibuat praktis: siswa yang belum memiliki data dianggap <b>Hadir</b>. Ubah hanya siswa yang S/I/A/T, lalu simpan sekali. Status yang berasal dari database ditandai <b>✓ Tersimpan</b>.</div>
     </div>
+    ${hasClass?`<div class="att-bulkbar">
+      <div class="att-bulk-title">⚡ Pengisian cepat: cukup tandai yang tidak hadir.</div>
+      <button type="button" class="att-bulk-btn" onclick="markAllPresent()">✓ Hadir Semua Hari</button>
+      <button type="button" class="att-bulk-btn" onclick="markAllPresentToday()">✓ Hadir Semua Hari Ini</button>
+    </div>`:""}
 
     ${!hasClass?`<div class="empty" style="padding:55px">Pilih kelas terlebih dahulu untuk menampilkan presensi.</div>`:
     `<div class="att-table-wrap">
@@ -787,6 +802,7 @@ views.presensi=()=>{
                 <div class="att-day-name">${dayName(i+1)}</div>
                 <div class="att-day-program-main">${primary?esc(primary.name):"Tidak ada kegiatan"}</div>
                 <div class="att-day-date">${fmtDate(date)}</div>
+                ${primary&&date<=todayISO()&&calendarStatus(date)==="NORMAL"?`<button type="button" class="att-day-bulk" onclick="markDayPresent('${date}','${primary.id}')">✓ H Semua</button>`:""}
                 ${progs.length>1?`<div class="att-day-program-more">+ ${progs.length-1} kegiatan</div>`:""}
               </th>`;
             }).join("")}
@@ -849,6 +865,59 @@ async function reloadAttendance(){
   state.attendance=data||[];
 }
 
+function eligibleAttendanceCells(){
+  const classId=state.attendanceClass;
+  if(!classId)return [];
+  const students=studentsForClass(classId);
+  const out=[];
+  for(const date of weekDates()){
+    if(date>todayISO() || calendarStatus(date)!=="NORMAL")continue;
+    for(const program of programForDate(date)){
+      for(const student of students){
+        out.push({date,pid:program.id,sid:student.id});
+      }
+    }
+  }
+  return out;
+}
+
+function markPresentDraft(date,pid,sid){
+  const existing=attFor(date,pid,sid);
+  const key=draftKey(date,pid,sid);
+  state.attendanceDraft[key]={
+    status:"HADIR",
+    originalStatus:existing?.status||null,
+    dirty:existing?.status!=="HADIR",
+    attendance_time:null,
+    late_minutes:null,
+    late_notes:null,
+    bulkPresent:true
+  };
+}
+
+function markDayPresent(date,pid){
+  if(date>todayISO() || calendarStatus(date)!=="NORMAL")return;
+  const students=studentsForClass(state.attendanceClass);
+  students.forEach(s=>markPresentDraft(date,pid,s.id));
+  render();
+  toast(`Semua siswa pada ${fmtDate(date)} ditandai Hadir.`);
+}
+
+function markAllPresent(){
+  eligibleAttendanceCells().forEach(x=>markPresentDraft(x.date,x.pid,x.sid));
+  render();
+  toast("Semua siswa pada hari yang tersedia ditandai Hadir.");
+}
+
+function markAllPresentToday(){
+  const date=todayISO();
+  for(const program of programForDate(date)){
+    studentsForClass(state.attendanceClass).forEach(s=>markPresentDraft(date,program.id,s.id));
+  }
+  render();
+  toast("Semua siswa hari ini ditandai Hadir.");
+}
+
 async function chooseAttendance(date,pid,sid,status,clickedButton){
   if(date>todayISO()){toast("Tanggal mendatang dikunci.");return;}
   if(calendarStatus(date)!=="NORMAL"){toast("Tanggal LIBUR/DITIADAKAN tidak dapat diisi.");return;}
@@ -865,7 +934,9 @@ async function chooseAttendance(date,pid,sid,status,clickedButton){
     dirty:status!==(existing?.status||null),
     attendance_time:null,
     late_minutes:status==="TERLAMBAT"?0:null,
-    late_notes:null
+    late_notes:null,
+    bulkPresent:false,
+    isDefaultPresent:false
   };
 
   const wrap=clickedButton?.closest?.(".att-cell");
