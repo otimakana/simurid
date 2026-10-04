@@ -825,12 +825,33 @@ async function saveAttendanceDraft(){
   try{
     const classId=state.attendanceClass;
     if(!classId)throw new Error("Pilih kelas terlebih dahulu.");
+    if(!state.user?.id)throw new Error("Sesi pengguna tidak ditemukan. Silakan login kembali.");
+
+    /*
+      PENTING:
+      habit_attendance memiliki UNIQUE constraint pada:
+      attendance_date + habit_program_id + student_id.
+
+      Jangan lagi membagi data menjadi UPDATE lalu INSERT berdasarkan
+      state.attendance di browser. State bisa saja belum sinkron dengan
+      database dan menyebabkan INSERT terhadap record yang sebenarnya
+      sudah ada.
+
+      Kita refresh data minggu ini terlebih dahulu, lalu gunakan UPSERT
+      dengan conflict target yang sama persis dengan UNIQUE constraint.
+      Hasilnya:
+        - record belum ada  -> INSERT
+        - record sudah ada  -> UPDATE
+      dan penyimpanan dapat diulang tanpa duplicate-key error.
+    */
+    await reloadAttendance();
 
     const students=studentsForClass(classId);
     const rows=[];
+    const rowMap=new Map();
 
     for(const date of weekDates()){
-      // Future dates and LIBUR/DITIADAKAN are not attendance opportunities.
+      // Tanggal mendatang dan tanggal LIBUR/DITIADAKAN bukan kesempatan presensi.
       if(date>todayISO() || calendarStatus(date)!=="NORMAL") continue;
 
       const programs=programForDate(date);
@@ -839,50 +860,50 @@ async function saveAttendanceDraft(){
           const draft=getDraft(date,program.id,student.id);
           if(!draft?.status) continue;
 
-          const existing=attFor(date,program.id,student.id);
-          rows.push({
-            ...(existing?.id ? {id:existing.id} : {}),
+          const row={
             attendance_date:date,
             habit_program_id:program.id,
             student_id:student.id,
             status:draft.status,
-            notes:null,
+            notes:draft.notes ?? null,
             recorded_by:state.user.id
-          });
+          };
+
+          // Lindungi upsert dari duplicate rows yang mungkin terbentuk
+          // di sisi browser: satu kombinasi hanya boleh satu baris.
+          const key=`${date}__${program.id}__${student.id}`;
+          rowMap.set(key,row);
         }
       }
     }
 
+    rows.push(...rowMap.values());
     if(!rows.length)throw new Error("Tidak ada presensi yang dapat disimpan.");
 
-    // Update existing records by ID; insert only records that do not exist.
-    // This avoids requiring a new UNIQUE constraint in the existing schema.
-    const updates=rows.filter(row=>row.id);
-    const inserts=rows.filter(row=>!row.id).map(({id,...row})=>row);
+    const {error}=await supabaseClient
+      .from("habit_attendance")
+      .upsert(rows,{
+        onConflict:"attendance_date,habit_program_id,student_id",
+        ignoreDuplicates:false
+      });
 
-    for(const row of updates){
-      const {id,...payload}=row;
-      const {error}=await supabaseClient
-        .from("habit_attendance")
-        .update(payload)
-        .eq("id",id);
-      if(error)throw error;
-    }
+    if(error)throw error;
 
-    if(inserts.length){
-      const {error}=await supabaseClient
-        .from("habit_attendance")
-        .insert(inserts);
-      if(error)throw error;
-    }
-
+    // Ambil kembali data dari Supabase agar tampilan selalu mencerminkan
+    // database setelah UPSERT berhasil.
     state.attendanceDraft={};
     await reloadAttendance();
     render();
     toast(`Presensi ${students.length} siswa berhasil disimpan.`);
   }catch(e){
-    console.error(e);
-    toast(e?.message || "Gagal menyimpan presensi.");
+    console.error("Gagal menyimpan presensi:",e);
+    const message=String(e?.message||"");
+    if(message.toLowerCase().includes("duplicate key") || message.toLowerCase().includes("unique constraint")){
+      toast("Ada data presensi yang sudah tersimpan. Sistem mencoba menyinkronkan ulang; silakan klik Simpan sekali lagi.");
+      try{await reloadAttendance();render();}catch(syncError){console.error("Gagal sinkronisasi:",syncError);}
+    }else{
+      toast(message || "Gagal menyimpan presensi.");
+    }
     if(btn){btn.disabled=false;btn.textContent="✓ Simpan Presensi";}
   }
 }
